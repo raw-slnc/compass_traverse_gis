@@ -477,6 +477,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             self.tr("From"),
             self.tr("To"),
             self.tr("Azimuth"),
+            self.tr("True Azimuth"),
             self.tr("Inclination"),
             self.tr("Slope Distance (m)"),
             self.tr("Horizontal Distance (m)"),
@@ -533,7 +534,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         self._calc_table = self._make_table([
             self.tr("From"),
             self.tr("To"),
-            self.tr("Azimuth"),
+            self.tr("True Azimuth"),
             self.tr("Inclination"),
             self.tr("Slope Distance (m)"),
             self.tr("Horizontal Distance (m)"),
@@ -861,12 +862,13 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             if not _entry_is_excluded(entry, exclude_lines)
         )
         area_total_m2 = sum(_entry_area_m2(entry) for entry in area_entries)
+        area_total_ha = sum(math.floor(_entry_area_m2(e) / 10000.0 * 100) / 100 for e in area_entries)
         right_label_1 = (
             self.tr("Area Total")
             if is_area_mode else self.tr("Length Total (Slope Distance)")
         )
         right_value_1 = (
-            _floor_ha_str(area_total_m2) if is_area_mode and area_total_m2
+            f"{area_total_ha:.2f} ha" if is_area_mode and area_total_m2
             else (_fmt(sum_sd) + " m" if sum_sd else "")
         )
         right_label_2 = "" if is_area_mode else self.tr("Length Total (Horizontal Distance)")
@@ -902,6 +904,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             block_entries,
             exclude_connecting_lines=exclude_lines,
             tr_label=self._preview_label,
+            magnetic_declination=float(self._pc.get("magnetic_declination", 0.0)),
         )
         self._fill_summary_table(
             self._nb_export_summary_table,
@@ -1004,7 +1007,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         for i, vals in enumerate(rows):
             for j, v in enumerate(vals):
                 item = QtWidgets.QTableWidgetItem(str(v))
-                if j >= 2 and j not in (9, 10, 11):
+                if j >= 2 and j not in (10, 11, 12):
                     item.setTextAlignment(
                         QtCore.Qt.AlignmentFlag.AlignRight |
                         QtCore.Qt.AlignmentFlag.AlignVCenter
@@ -1077,6 +1080,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             operation_type=pc.get("operation_type", ""),
             block_entries=pc.get("block_entries", []),
             exclude_connecting_lines=bool(pc.get("exclude_connecting_lines", False)),
+            magnetic_declination=float(pc.get("magnetic_declination", 0.0)),
         )
         if self._tmp_html_path is None:
             fd, path = tempfile.mkstemp(suffix=".html", prefix="ct_table_")
@@ -1830,7 +1834,8 @@ def _render_pdf_page(painter, layers, extent, map_rect,
 def _section_notebook_html(observations, paper_key, computation=None, *,
                            project_name="", work_name="", fiscal_year="",
                            surveyor="", measurement_date="", operation_type="",
-                           block_entries=None, exclude_connecting_lines=False):
+                           block_entries=None, exclude_connecting_lines=False,
+                           magnetic_declination=0.0):
     he = html_module.escape
     block_entries = _normalized_block_entries(
         observations=observations,
@@ -1852,6 +1857,7 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
         if not _entry_is_excluded(entry, exclude_connecting_lines)
     )
     area_total_m2 = sum(_entry_area_m2(entry) for entry in area_entries)
+    area_total_ha = sum(math.floor(_entry_area_m2(e) / 10000.0 * 100) / 100 for e in area_entries)
     def _info_html(right_label_1, right_value_1, right_label_2="", right_value_2=""):
         return f"""<table style="margin-bottom:6px;font-size:11px;width:100%">
 <tr>
@@ -1883,7 +1889,7 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
     overview_html = _info_html(
         "面積合計" if is_area_mode else "延長合計（斜距離）",
         (
-            _floor_ha_str(area_total_m2)
+            f"{area_total_ha:.2f} ha"
             if is_area_mode and area_total_m2
             else (_fmt(sum_sd) + " m" if sum_sd else "")
         ),
@@ -1925,11 +1931,18 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             note_parts = [str(obs.note or "").strip()]
             if excluded:
                 note_parts.append("計算から除外")
+            if obs.azimuth is not None:
+                raw_az = (obs.azimuth - magnetic_declination) % 360.0
+                true_az_str = _fmt_d(obs.azimuth) if magnetic_declination != 0 else "-"
+            else:
+                raw_az = None
+                true_az_str = "-"
             rows_html += (
                 f"<tr>"
                 f"<td>{he(str(obs.from_station))}</td>"
                 f"<td>{he(str(obs.target_station))}</td>"
-                f"<td style='text-align:right'>{_fmt_d(obs.azimuth)}</td>"
+                f"<td style='text-align:right'>{_fmt_d(raw_az)}</td>"
+                f"<td style='text-align:right'>{true_az_str}</td>"
                 f"<td style='text-align:right'>{_fmt_d(obs.inclination)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(obs.slope_distance)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(obs.horizontal_distance)}</td>"
@@ -1949,7 +1962,7 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                 subtotal_note = f"{subtotal_note} / 計算から除外"
             rows_html += (
                 f"<tr style='font-weight:bold;background:#f0f4f8;'>"
-                f"<td colspan='4'>延長計</td>"
+                f"<td colspan='5'>延長計</td>"
                 f"<td style='text-align:right'>{subtotal_sd}</td>"
                 f"<td style='text-align:right'>{subtotal_hd}</td>"
                 f"<td></td><td></td><td></td><td></td><td></td>"
@@ -1962,7 +1975,7 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
 <thead>
 <tr>
   <th rowspan="2">視準点</th><th rowspan="2">測定点</th>
-  <th rowspan="2">方位角</th><th rowspan="2">高低角</th>
+  <th rowspan="2">方位角</th><th rowspan="2">真方位角<br>（偏差修正後）</th><th rowspan="2">高低角</th>
   <th>斜距離</th><th>水平距離</th><th>高低差</th>
   <th>△X</th><th>△Y</th>
   <th rowspan="2">接続先</th><th rowspan="2">閉合先</th><th rowspan="2">備考</th>
@@ -2138,7 +2151,7 @@ def _section_area_calc_html(*, observations, computation, project_name,
 <thead>
 <tr>
   <th rowspan="2">視準点</th><th rowspan="2">測定点</th>
-  <th rowspan="2">方位角</th><th rowspan="2">高低角</th>
+  <th rowspan="2">真方位角<br>（偏差修正後）</th><th rowspan="2">高低角</th>
   <th>斜距離</th><th>水平距離</th><th>高低差</th>
   <th>Y</th><th>X</th><th>Z</th>
   <th rowspan="2">倍横距</th><th rowspan="2">緯距</th><th rowspan="2">倍面積</th>
@@ -2162,7 +2175,8 @@ def _section_area_calc_html(*, observations, computation, project_name,
 def _build_table_html(*, project_name, work_name, scale_text, paper_key,
                       note_text, observations, computation,
                       fiscal_year="", surveyor="", measurement_date="", operation_type="",
-                      block_entries=None, exclude_connecting_lines=False):
+                      block_entries=None, exclude_connecting_lines=False,
+                      magnetic_declination=0.0):
     """Full HTML with 測量野帳 + 面積計算簿 tabs for browser preview/print."""
     he = html_module.escape
     page_css = _CSS_PAGE_SIZE.get(paper_key, "A4 landscape")
@@ -2180,6 +2194,7 @@ def _build_table_html(*, project_name, work_name, scale_text, paper_key,
         measurement_date=measurement_date, operation_type=operation_type,
         block_entries=block_entries,
         exclude_connecting_lines=exclude_connecting_lines,
+        magnetic_declination=magnetic_declination,
     )
     calc = ""
     if area_entries:
@@ -2329,6 +2344,7 @@ def generate_export_bundle(
     measurement_date="",
     operation_type="",
     exclude_connecting_lines=False,
+    magnetic_declination=0.0,
 ):
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2374,6 +2390,7 @@ def generate_export_bundle(
         measurement_date=measurement_date,
         operation_type=operation_type,
         exclude_connecting_lines=exclude_connecting_lines,
+        magnetic_declination=magnetic_declination,
     )
     with open(html_path, "w", encoding="utf-8") as fp:
         fp.write(html_text)
@@ -2522,6 +2539,8 @@ def _area_summary_html(area_entries, *, heading="面積一覧"):
             )
         )
 
+    total_ha = sum(math.floor(m2 / 10000.0 * 100) / 100 for _, m2 in rows)
+
     html_rows = [
         "<table>"
         "<thead><tr><th>区画</th><th>面積(m²)</th><th>面積(ha)</th></tr></thead><tbody>"
@@ -2537,8 +2556,8 @@ def _area_summary_html(area_entries, *, heading="面積一覧"):
     html_rows.append(
         "<tr style='font-weight:bold;background:#f0f4f8;'>"
         "<td>合計</td>"
-        f"<td style='text-align:right'>{_fmt_d(total_m2, 4)}</td>"
-        f"<td style='text-align:right'>{_floor_ha_str(total_m2)}</td>"
+        f"<td style='text-align:right'>({_fmt_d(total_m2, 4)})</td>"
+        f"<td style='text-align:right'>{total_ha:.2f} ha</td>"
         "</tr>"
     )
     html_rows.append("</tbody></table>")
@@ -2555,6 +2574,7 @@ def _build_notebook_export_summary_rows(
     area_entries, line_entries, _is_area_mode = _classify_block_entries(block_entries)
     rows = []
     area_total_m2 = 0.0
+    area_total_ha = 0.0
     sorted_area_entries = sorted(
         area_entries,
         key=lambda e: str(e.get("block_name") or e.get("block_id") or ""),
@@ -2562,6 +2582,7 @@ def _build_notebook_export_summary_rows(
     for entry in sorted_area_entries:
         area_m2 = _entry_area_m2(entry)
         area_total_m2 += area_m2
+        area_total_ha += math.floor(area_m2 / 10000.0 * 100) / 100
         rows.append((
             tr_label("Area"),
             str(entry.get("block_name") or entry.get("block_id") or ""),
@@ -2571,7 +2592,7 @@ def _build_notebook_export_summary_rows(
         rows.append((
             tr_label("Area"),
             tr_label("Total"),
-            f"{_fmt_d(area_total_m2, 4)} m² / {_floor_ha_str(area_total_m2)}",
+            f"({_fmt_d(area_total_m2, 4)} m²) / {area_total_ha:.2f} ha",
         ))
 
     line_total_sd = 0.0
@@ -2606,6 +2627,7 @@ def _build_notebook_preview_sections(
     *,
     exclude_connecting_lines=False,
     tr_label=None,
+    magnetic_declination=0.0,
 ):
     tr_label = tr_label or (lambda text: text)
     sections = []
@@ -2642,9 +2664,16 @@ def _build_notebook_preview_sections(
             note_parts = [str(obs.note or "").strip()]
             if excluded:
                 note_parts.append(tr_label("Excluded from calculation"))
+            if obs.azimuth is not None:
+                raw_az = (obs.azimuth - magnetic_declination) % 360.0
+                true_az_str = _fmt(obs.azimuth) if magnetic_declination != 0 else "-"
+            else:
+                raw_az = None
+                true_az_str = "-"
             rows.append([
                 obs.from_station, obs.target_station,
-                _fmt(obs.azimuth), _fmt(obs.inclination),
+                _fmt(raw_az), true_az_str,
+                _fmt(obs.inclination),
                 _fmt(obs.slope_distance), _fmt(obs.horizontal_distance),
                 _fmt(dz),
                 _fmt(leg.delta_x if leg else None),
@@ -2657,7 +2686,7 @@ def _build_notebook_preview_sections(
             if excluded:
                 subtotal_note = f"{subtotal_note} / {tr_label('Excluded from calculation')}"
             rows.append([
-                tr_label("Length Total"), "", "", "",
+                tr_label("Length Total"), "", "", "", "",
                 "" if excluded else _fmt(_entry_sum_sd(entry)),
                 "" if excluded else _fmt(_entry_sum_hd(entry)),
                 "", "", "", "", "", subtotal_note,
@@ -2688,7 +2717,8 @@ def _build_calc_export_summary_rows(area_entries, *, tr_label=None):
             _fmt_d(area_m2, 4),
             _floor_ha_str(area_m2),
         ))
-    rows.append((tr_label("Total"), _fmt_d(total_m2, 4), _floor_ha_str(total_m2)))
+    total_ha = sum(math.floor(_entry_area_m2(e) / 10000.0 * 100) / 100 for e in sorted_entries)
+    rows.append((tr_label("Total"), f"({_fmt_d(total_m2, 4)})", f"{total_ha:.2f} ha"))
     return rows
 
 

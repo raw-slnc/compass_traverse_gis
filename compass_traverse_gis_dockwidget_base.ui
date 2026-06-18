@@ -472,13 +472,13 @@
               <property name="orientation">
                <enum>Qt::Horizontal</enum>
               </property>
-              <widget class="QGroupBox" name="legResultGroup">
+              <widget class="QGroupBox" name="projectInfoGroup">
                <property name="title">
                 <string>Project Details</string>
                </property>
                <layout class="QVBoxLayout" name="legResultLayout">
                 <item>
-                 <widget class="QTableWidget" name="legResultTable"/>
+                 <widget class="QTableWidget" name="projectInfoTable"/>
                 </item>
                 <item>
                  <widget class="QWidget" name="languageSectionWidget" native="true">

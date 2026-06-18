@@ -82,6 +82,12 @@ from .workspace_store import load_workspace_state, save_workspace_state
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'compass_traverse_gis_dockwidget_base.ui'))
 
+_SUMMARY_MODES = {
+    "area":  ["area", "error", "perimeter", "obs_count", "start_coord", "notes"],
+    "route": ["route_length", "error", "obs_count", "start_coord", "notes"],
+    "both":  ["area", "error", "perimeter", "route_length", "obs_count", "start_coord", "notes"],
+}
+
 
 class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
@@ -119,6 +125,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._auto_row_kinds = []  # per-table-row auto-detected kind (read-only, from detect_blocks)
         self._detected_blocks = {}     # block_id → SurveyBlock (rebuilt each calculation)
         self._block_manual_names = {}  # block_id → manual name override (persisted)
+        self._current_summary_mode = "area"
+        self._current_summary_keys = list(_SUMMARY_MODES["area"])
         locale_value = QtCore.QSettings().value("locale/userLocale", "en")
         self._current_language_code = (
             getattr(self.plugin, "current_language_code", None)
@@ -418,29 +426,20 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _init_calculation_panel(self):
         self.summaryTable.setColumnCount(2)
-        self.summaryTable.setHorizontalHeaderLabels([self.tr("Item"), self.tr("Value")])
-        self.summaryTable.setRowCount(6)
-        summary_labels = [
-            self.tr("Area"),
-            self.tr("Error"),
-            self.tr("Perimeter"),
-            self.tr("Observed Rows"),
-            self.tr("Start Coordinate"),
-            self.tr("Notes"),
-        ]
-        for row_index, label in enumerate(summary_labels):
-            self.summaryTable.setItem(row_index, 0, QtWidgets.QTableWidgetItem(label))
-            self.summaryTable.setItem(row_index, 1, QtWidgets.QTableWidgetItem(""))
         self.summaryTable.horizontalHeader().setStretchLastSection(True)
         self.summaryTable.horizontalHeader().setSectionResizeMode(
-            QtWidgets.QHeaderView.Stretch
+            0, QtWidgets.QHeaderView.Interactive
         )
-        self._set_summary_value(5, self.tr("Run calculation to show results here."))
+        self.summaryTable.horizontalHeader().setSectionResizeMode(
+            1, QtWidgets.QHeaderView.Stretch
+        )
+        self._rebuild_summary_table("area")
+        self._set_summary_by_key("notes", self.tr("Run calculation to show results here."))
 
-        self.legResultGroup.setTitle(self.tr("Project Details"))
-        self.legResultTable.setColumnCount(2)
-        self.legResultTable.setHorizontalHeaderLabels([self.tr("Item"), self.tr("Value")])
-        self.legResultTable.setRowCount(9)
+        self.projectInfoGroup.setTitle(self.tr("Project Details"))
+        self.projectInfoTable.setColumnCount(2)
+        self.projectInfoTable.setHorizontalHeaderLabels([self.tr("Item"), self.tr("Value")])
+        self.projectInfoTable.setRowCount(9)
         project_labels = [
             self.tr("Project Name"),
             self.tr("Work Name"),
@@ -455,15 +454,18 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for row_index, label in enumerate(project_labels):
             label_item = QtWidgets.QTableWidgetItem(label)
             label_item.setFlags(label_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.legResultTable.setItem(row_index, 0, label_item)
-            self.legResultTable.setItem(row_index, 1, QtWidgets.QTableWidgetItem(""))
-        self.legResultTable.horizontalHeader().setStretchLastSection(True)
-        self.legResultTable.horizontalHeader().setSectionResizeMode(
-            QtWidgets.QHeaderView.Stretch
+            self.projectInfoTable.setItem(row_index, 0, label_item)
+            self.projectInfoTable.setItem(row_index, 1, QtWidgets.QTableWidgetItem(""))
+        self.projectInfoTable.horizontalHeader().setStretchLastSection(True)
+        self.projectInfoTable.horizontalHeader().setSectionResizeMode(
+            0, QtWidgets.QHeaderView.Interactive
         )
-        self.legResultTable.verticalHeader().setVisible(False)
-        self.legResultTable.itemChanged.connect(self._handle_project_table_item_changed)
-        self.legResultTable.cellDoubleClicked.connect(self._handle_project_table_cell_double_clicked)
+        self.projectInfoTable.horizontalHeader().setSectionResizeMode(
+            1, QtWidgets.QHeaderView.Stretch
+        )
+        self.projectInfoTable.verticalHeader().setVisible(False)
+        self.projectInfoTable.itemChanged.connect(self._handle_project_table_item_changed)
+        self.projectInfoTable.cellDoubleClicked.connect(self._handle_project_table_cell_double_clicked)
         self.languageToggleButton.clicked.connect(self._toggle_language)
         self._update_language_label()
         self._populate_project_table()
@@ -473,6 +475,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 self._project_record.business_name,
             )
         )
+        self.mainTabWidget.currentChanged.connect(lambda _: self._apply_info_column_ratio())
 
     def _init_output_panel(self):
         self.exportButton.clicked.connect(self._open_export_settings)
@@ -608,6 +611,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             "computation": computation,
             "block_entries": block_entries,
             "exclude_connecting_lines": self.excludeBranchCheck.isChecked(),
+            "magnetic_declination": self.magneticDeclinationSpin.value(),
         }
         dialog = ExportSettingsDialog(
             self,
@@ -665,6 +669,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             measurement_date=self._project_record.year_reference_date,
             operation_type=self._project_record.operation_type,
             exclude_connecting_lines=self.excludeBranchCheck.isChecked(),
+            magnetic_declination=self.magneticDeclinationSpin.value(),
         )
         self.notebookHintLabel.setText(
             self.tr("Export finished: {}").format(files[0] if files else output_dir)
@@ -737,9 +742,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             )
             QtWidgets.QMessageBox.warning(
                 self,
-                self.tr("データの不一致"),
+                self.tr("Data Mismatch"),
                 self.tr(
-                    "インポートデータに点番の不一致があります。続行してデータを読み込みます。\n\n{}"
+                    "Import data has station number mismatches. Continuing to load data.\n\n{}"
                 ).format(lines_text),
             )
         detected_fields = ", ".join(
@@ -1035,9 +1040,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             )
             reply = QtWidgets.QMessageBox.warning(
                 self,
-                self.tr("データの不一致"),
+                self.tr("Data Mismatch"),
                 self.tr(
-                    "以下の箇所を確認してください。このまま計算しますか？\n\n{}"
+                    "Please check the following items. Continue with calculation?\n\n{}"
                 ).format(lines_text),
                 QtWidgets.QMessageBox.StandardButton.Yes
                 | QtWidgets.QMessageBox.StandardButton.No,
@@ -1047,15 +1052,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 return
 
         self._clear_calculation_columns()
-        self._set_summary_value(0, "-")
-        self._set_summary_value(1, "-")
-        self._set_summary_value(2, "-")
-        self._set_summary_value(3, str(len(observations)))
-        self._set_summary_value(
-            4,
-            self._start_coordinate_display_text(),
-        )
-        self._set_summary_value(5, " / ".join(notes) if notes else "")
+        self._rebuild_summary_table("area")
+        self._set_summary_by_key("obs_count", str(len(observations)))
+        self._set_summary_by_key("start_coord", self._start_coordinate_display_text())
+        self._set_summary_by_key("notes", " / ".join(notes) if notes else "")
 
         if not observations:
             self._clear_preview_layers()
@@ -1067,8 +1067,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         start_coordinate, coordinate_note = self._resolve_start_coordinate(observations)
         if start_coordinate is None:
             self._clear_preview_layers()
-            self._set_summary_value(4, self.tr("Start position not set"))
-            self._set_summary_value(5, coordinate_note)
+            self._set_summary_by_key("start_coord", self.tr("Start position not set"))
+            self._set_summary_by_key("notes", coordinate_note)
             self.notebookHintLabel.setText(
                 coordinate_note
                 or self.tr("Calculation and layer generation stopped because the start position is not set.")
@@ -1084,14 +1084,14 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             )
         except Exception as error:
             self._clear_preview_layers()
-            self._set_summary_value(4, self.tr("Calculation Error"))
-            self._set_summary_value(5, str(error))
+            self._set_summary_by_key("start_coord", self.tr("Calculation Error"))
+            self._set_summary_by_key("notes", str(error))
             self.notebookHintLabel.setText(self.tr("Calculation error: {}").format(error))
             return
 
         if not block_computations:
             self._clear_preview_layers()
-            self._set_summary_value(5, "計算可能なブロックがありません。")
+            self._set_summary_by_key("notes", "計算可能なブロックがありません。")
             return
 
         for blk_obs, comp in block_computations:
@@ -1104,32 +1104,58 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 primary_comp = comp_i
                 break
 
-        perimeter = primary_comp.corrected_perimeter()
-        total_distance = convert_distance_from_meters(
-            perimeter or primary_comp.total_horizontal_distance(),
-            units.distance_unit,
+        mode = self._detect_summary_mode(block_computations)
+        if mode != self._current_summary_mode:
+            self._rebuild_summary_table(mode)
+
+        total_area_m2 = 0.0
+        total_area_ha = 0.0
+        total_perimeter_m = 0.0
+        has_area_block = False
+        route_distance_m = 0.0
+        for blk_obs, comp in block_computations:
+            if blk_obs:
+                blk = self._detected_blocks.get(blk_obs[0].block_id or "")
+                if blk is not None and blk.kind == BlockKind.AREA:
+                    a = comp.corrected_area()
+                    if a is not None:
+                        total_area_m2 += a
+                        total_area_ha += math.floor(a / 10000.0 * 100) / 100
+                        has_area_block = True
+                    total_perimeter_m += comp.corrected_perimeter() or comp.total_horizontal_distance()
+                elif blk is not None and blk.kind in (BlockKind.ROUTE, BlockKind.BRANCH):
+                    route_distance_m += comp.total_horizontal_distance()
+
+        if has_area_block:
+            perimeter_display = convert_distance_from_meters(total_perimeter_m, units.distance_unit)
+            self._set_summary_by_key(
+                "area", f"{total_area_ha:.2f} ha"
+            )
+            self._set_summary_by_key(
+                "perimeter", f"{perimeter_display:.3f} {self.distanceUnitCombo.currentText()}"
+            )
+        else:
+            area = primary_comp.corrected_area()
+            perimeter_m = primary_comp.corrected_perimeter() or primary_comp.total_horizontal_distance()
+            perimeter_display = convert_distance_from_meters(perimeter_m, units.distance_unit)
+            self._set_summary_by_key(
+                "area", "-" if area is None else f"{math.floor(area / 10000.0 * 100) / 100:.2f} ha"
+            )
+            self._set_summary_by_key(
+                "perimeter", f"{perimeter_display:.3f} {self.distanceUnitCombo.currentText()}"
+            )
+        if route_distance_m > 0:
+            route_display = convert_distance_from_meters(route_distance_m, units.distance_unit)
+            self._set_summary_by_key(
+                "route_length", f"{route_display:.3f} {self.distanceUnitCombo.currentText()}"
+            )
+        self._set_summary_by_key("error", self._format_error_value(primary_comp))
+        self._set_summary_by_key(
+            "obs_count", str(sum(len(bo) for bo, _ in block_computations))
         )
-        area = primary_comp.corrected_area()
-        self._set_summary_value(
-            0,
-            "-" if area is None else f"{math.floor(area / 10000.0 * 100) / 100:.2f} ha",
-        )
-        self._set_summary_value(1, self._format_error_value(primary_comp))
-        self._set_summary_value(
-            3,
-            str(sum(len(bo) for bo, _ in block_computations)),
-        )
-        self._set_summary_value(
-            2,
-            f"{total_distance:.3f} {self.distanceUnitCombo.currentText()}",
-        )
-        self._set_summary_value(
-            4,
-            self._start_coordinate_display_text(),
-        )
-        self._set_summary_value(
-            5,
-            self._format_calculation_notes(notes, primary_comp),
+        self._set_summary_by_key("start_coord", self._start_coordinate_display_text())
+        self._set_summary_by_key(
+            "notes", self._format_calculation_notes(notes, primary_comp)
         )
         self._refresh_block_name_combo()
         layer_entries = [
@@ -1147,9 +1173,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             layer_entries.append(linked_entry)
         elif linked_error:
             notes.append(linked_error)
-            self._set_summary_value(
-                5,
-                self._format_calculation_notes(notes, primary_comp),
+            self._set_summary_by_key(
+                "notes", self._format_calculation_notes(notes, primary_comp)
             )
         self._refresh_preview_layers(layer_entries)
         self._zoom_to_preview_layers()
@@ -1645,13 +1670,13 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._project_record.operation_type,
             self.tr("Complete") if self._project_record.is_complete else self.tr("Editing"),
         ]
-        self.legResultTable.blockSignals(True)
+        self.projectInfoTable.blockSignals(True)
         try:
             for row_index, value in enumerate(values):
-                item = self.legResultTable.item(row_index, 1)
+                item = self.projectInfoTable.item(row_index, 1)
                 if item is None:
                     item = QtWidgets.QTableWidgetItem("")
-                    self.legResultTable.setItem(row_index, 1, item)
+                    self.projectInfoTable.setItem(row_index, 1, item)
                 item.setText(str(value))
                 if row_index == 5:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -1662,7 +1687,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 else:
                     item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
         finally:
-            self.legResultTable.blockSignals(False)
+            self.projectInfoTable.blockSignals(False)
         self._apply_project_editability()
 
     def _format_project_year_display(self):
@@ -1706,24 +1731,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.currentLanguageLabel.setText("Japanese")
 
     def _retranslate_dynamic_texts(self):
-        self.summaryTable.setHorizontalHeaderLabels([self.tr("Item"), self.tr("Value")])
-        summary_labels = [
-            self.tr("Area"),
-            self.tr("Error"),
-            self.tr("Perimeter"),
-            self.tr("Observed Rows"),
-            self.tr("Start Coordinate"),
-            self.tr("Notes"),
-        ]
-        for row_index, label in enumerate(summary_labels):
-            item = self.summaryTable.item(row_index, 0)
-            if item is None:
-                item = QtWidgets.QTableWidgetItem("")
-                self.summaryTable.setItem(row_index, 0, item)
-            item.setText(label)
+        self._rebuild_summary_table(self._current_summary_mode, clear_values=False)
 
-        self.legResultGroup.setTitle(self.tr("Project Details"))
-        self.legResultTable.setHorizontalHeaderLabels([self.tr("Item"), self.tr("Value")])
+        self.projectInfoGroup.setTitle(self.tr("Project Details"))
+        self.projectInfoTable.setHorizontalHeaderLabels([self.tr("Item"), self.tr("Value")])
         project_labels = [
             self.tr("Project Name"),
             self.tr("Work Name"),
@@ -1736,11 +1747,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.tr("Completion"),
         ]
         for row_index, label in enumerate(project_labels):
-            item = self.legResultTable.item(row_index, 0)
+            item = self.projectInfoTable.item(row_index, 0)
             if item is None:
                 item = QtWidgets.QTableWidgetItem("")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.legResultTable.setItem(row_index, 0, item)
+                self.projectInfoTable.setItem(row_index, 0, item)
             item.setText(label)
 
         headers = [
@@ -2675,19 +2686,27 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for row_index in range(self.summaryTable.rowCount()):
             item = self.summaryTable.item(row_index, 1)
             values.append(item.text().strip() if item is not None else "")
-        return values
+        return {"mode": self._current_summary_mode, "values": values}
 
-    def _restore_summary_snapshot(self, values):
-        for row_index in range(self.summaryTable.rowCount()):
-            value = values[row_index] if row_index < len(values) else ""
-            self._set_summary_value(row_index, value)
+    def _restore_summary_snapshot(self, snapshot):
+        if isinstance(snapshot, list):
+            for row_index in range(self.summaryTable.rowCount()):
+                value = snapshot[row_index] if row_index < len(snapshot) else ""
+                self._set_summary_value(row_index, value)
+            return
+        mode = snapshot.get("mode", "area")
+        values = snapshot.get("values", [])
+        self._rebuild_summary_table(mode, clear_values=False)
+        for row_index, value in enumerate(values):
+            if row_index < self.summaryTable.rowCount():
+                self._set_summary_value(row_index, value)
 
     def _mark_current_project_dirty(self, note=None):
         if self._loading_project_state:
             return
         self._current_dirty = True
         if note:
-            self._set_summary_value(5, note)
+            self._set_summary_by_key("notes", note)
             self.notebookHintLabel.setText(note)
         else:
             self._update_notebook_hint_label()
@@ -3055,6 +3074,45 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             item = QtWidgets.QTableWidgetItem("")
             self.summaryTable.setItem(row_index, 1, item)
         item.setText(value)
+
+    def _summary_label(self, key):
+        return {
+            "area":         self.tr("Area"),
+            "error":        self.tr("Error"),
+            "perimeter":    self.tr("Perimeter"),
+            "route_length": self.tr("Route Length"),
+            "obs_count":    self.tr("Observed Rows"),
+            "start_coord":  self.tr("Start Coordinate"),
+            "notes":        self.tr("Notes"),
+        }.get(key, key)
+
+    def _rebuild_summary_table(self, mode, clear_values=True):
+        keys = _SUMMARY_MODES.get(mode, _SUMMARY_MODES["area"])
+        self._current_summary_mode = mode
+        self._current_summary_keys = list(keys)
+        self.summaryTable.setRowCount(len(keys))
+        self.summaryTable.setHorizontalHeaderLabels([self.tr("Item"), self.tr("Value")])
+        for row_idx, key in enumerate(keys):
+            label_item = QtWidgets.QTableWidgetItem(self._summary_label(key))
+            label_item.setFlags(label_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.summaryTable.setItem(row_idx, 0, label_item)
+            if clear_values or self.summaryTable.item(row_idx, 1) is None:
+                self.summaryTable.setItem(row_idx, 1, QtWidgets.QTableWidgetItem(""))
+
+    def _set_summary_by_key(self, key, value):
+        if key in self._current_summary_keys:
+            self._set_summary_value(self._current_summary_keys.index(key), value)
+
+    def _detect_summary_mode(self, block_computations):
+        if not self.closureEnabledCheck.isChecked():
+            return "route"
+        has_route = any(
+            blk_obs
+            and self._detected_blocks.get(blk_obs[0].block_id or "") is not None
+            and self._detected_blocks[blk_obs[0].block_id].kind == BlockKind.ROUTE
+            for blk_obs, _ in block_computations
+        )
+        return "both" if has_route else "area"
 
     def _refresh_preview_layers(self, computation):
         self._clear_preview_layers()
@@ -3443,6 +3501,16 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for child in list(root.children()):
             if child.name() == self._preview_group_name:
                 root.removeChildNode(child)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QtCore.QTimer.singleShot(0, self._apply_info_column_ratio)
+
+    def _apply_info_column_ratio(self):
+        for table in (self.projectInfoTable, self.summaryTable):
+            w = table.width()
+            if w > 0:
+                table.setColumnWidth(0, int(w * 0.30))
 
     def closeEvent(self, event):
         self._clear_preview_layers()

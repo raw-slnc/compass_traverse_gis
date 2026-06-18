@@ -207,6 +207,10 @@ class CompassTraverseGis:
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
 
+        if self.translator is not None:
+            QCoreApplication.removeTranslator(self.translator)
+            self.translator = None
+
         if self.dockwidget is not None:
             try:
                 self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compass Traverse GIS Manual</title>
+  <style>
+    :root {
+      --bg: #f6f3ee;
+      --panel: #fffdf9;
+      --ink: #222;
+      --muted: #5f5a52;
+      --line: #d9d0c2;
+      --accent: #b33a2f;
+      --accent-soft: #f4d9d4;
+    }
+    body {
+      margin: 0;
+      font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
+      background: linear-gradient(180deg, #f8f4ee 0%, #efe8dc 100%);
+      color: var(--ink);
+      line-height: 1.65;
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+    header {
+      margin-bottom: 28px;
+      padding: 24px 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(60,45,20,0.08);
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    header .header-text { flex: 1; }
+    h1, h2, h3 { margin: 0 0 12px; line-height: 1.25; }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.35rem; padding-bottom: 8px; border-bottom: 2px solid var(--accent-soft); }
+    section {
+      margin-bottom: 26px;
+      padding: 22px 24px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 10px 24px rgba(60,45,20,0.06);
+    }
+    p, li { color: var(--ink); }
+    .muted { color: var(--muted); }
+    .note {
+      padding: 10px 14px;
+      border-left: 4px solid var(--accent);
+      background: #fff6f4;
+      border-radius: 8px;
+    }
+    code {
+      padding: 0.1em 0.4em;
+      border-radius: 6px;
+      background: #f1ece3;
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 0.95em;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.96rem; }
+    th, td { border: 1px solid var(--line); padding: 9px 10px; vertical-align: top; text-align: left; }
+    th { background: #f7efe2; width: 28%; }
+    ul, ol { margin: 10px 0 0 18px; padding: 0; }
+    .lang-btn {
+      flex-shrink: 0;
+      padding: 6px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f1ece3;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--ink);
+    }
+    .lang-btn:hover { background: var(--accent-soft); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-text">
+        <h1>Compass Traverse GIS Manual</h1>
+        <p class="muted" data-ja>QGIS プラグイン <code>Compass Traverse GIS</code> の基本操作と、野帳・計算・レイヤ管理の考え方をまとめた簡易マニュアルです。</p>
+        <p class="muted" data-en>A quick reference for <code>Compass Traverse GIS</code> — field notebook entry, traverse computation, layer management, and export.</p>
+      </div>
+      <button class="lang-btn" onclick="toggleLang()">EN / 日本語</button>
+    </header>
+
+    <!-- ===== JAPANESE ===== -->
+    <div id="content-ja">
+
+      <section>
+        <h2>1. 概要</h2>
+        <p>このプラグインは、コンパス測量の野帳入力、接続点・閉合点管理、トラバース計算、レイヤ生成、帳票エクスポートを一体で扱うための作業画面です。</p>
+        <div class="note">レイヤはプラグイン管理レイヤとして生成されます。必要に応じてシンボロジ変更はできますが、元データ編集は野帳テーブル側で行ってください。</div>
+      </section>
+
+      <section>
+        <h2>2. 基本構成</h2>
+        <table>
+          <tr><th>左パネル</th><td>データ状態、プロジェクト・作業名選択、ブロック名称、成果物管理</td></tr>
+          <tr><th>野帳 タブ</th><td>野帳入力、測量設定、接続点・閉合点、位置入力</td></tr>
+          <tr><th>Project タブ</th><td>プロジェクト管理情報、計算サマリー、言語切替</td></tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>3. データ状態グループ</h2>
+        <p>左パネル上部の「データ状態」グループには、作業データの保存状況が表示されます。</p>
+        <table>
+          <tr><th>現行データ</th><td>現在読み込まれている SQLite ファイル名。QGIS プロジェクト未保存時は「データ未作成」と表示されます。</td></tr>
+          <tr><th>切替</th><td>退避済みデータが存在する場合に有効になります。過去データを「保存データを切替」ダイアログから読み込み直せます。</td></tr>
+          <tr><th>新規作成</th><td>現行データをアーカイブフォルダへ退避し、新しい SQLite を作成します。QGIS プロジェクトを保存してから実行してください。</td></tr>
+        </table>
+        <div class="note">
+          SQLite は QGIS プロジェクトと同じフォルダに作成されます。退避済みファイルは <code>_compass_traverse_gis_archive</code> フォルダに保存されます。
+        </div>
+      </section>
+
+      <section>
+        <h2>4. 野帳入力</h2>
+        <ul>
+          <li>測量点（<code>測量点</code>）と目標点（<code>目標点</code>）は、数値に限らず自由な文字列で入力できます。</li>
+          <li><code>接続点</code> と <code>閉合点</code> は、ダブルクリックで測点候補から選択できます。</li>
+          <li><code>位置</code> 列はダブルクリックで緯度経度入力モーダルを開きます。</li>
+          <li>空行は視認上の区切りとして使用できます。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>5. 野帳インポート</h2>
+        <p><code>測量テーブル読込</code> を押すと、CSV または Excel 形式の測量表を野帳へ読み込みます。</p>
+        <ul>
+          <li>対応形式は <code>.csv</code>, <code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code> です。</li>
+          <li>CSV は <code>utf-8-sig</code>, <code>cp932</code>, <code>utf-8</code> を順に試して読み込みます。</li>
+          <li>区切り文字は自動判定され、判定できない場合はカンマ区切りとして扱います。</li>
+        </ul>
+        <h3>自動検知される列名</h3>
+        <p class="muted">読込時はヘッダ名を見て、対応列の候補を自動検知します。空白、記号、大小文字の差はある程度吸収されます。</p>
+        <table>
+          <tr><th>野帳列</th><th>自動検知キーワード例</th></tr>
+          <tr><td>測量点</td><td>測量点, 測点, 起点, from</td></tr>
+          <tr><td>目標点</td><td>目標点, 目標, 到達点, target, to</td></tr>
+          <tr><td>接続点</td><td>接続点, 接続</td></tr>
+          <tr><td>閉合点</td><td>閉合点, 閉合</td></tr>
+          <tr><td>SD</td><td>SD, 斜距離, 射距離, 実測距離</td></tr>
+          <tr><td>INC</td><td>INC, 高低, 高低角, 鉛直角</td></tr>
+          <tr><td>AZ</td><td>AZ, 方角, 方位角, 方位, 方向角</td></tr>
+          <tr><td>HD</td><td>HD, 水平距離</td></tr>
+          <tr><td>緯度</td><td>緯度, lat, latitude</td></tr>
+          <tr><td>経度</td><td>経度, lon, lng, longitude</td></tr>
+        </table>
+        <h3>読込時の流れ</h3>
+        <ol>
+          <li>ファイルを選択する</li>
+          <li>列対応ダイアログで、自動検知結果を確認する</li>
+          <li>必要なら手動で対応列を変更する</li>
+          <li>「測量点」と「目標点」に相当する列が設定されていれば読み込む</li>
+        </ol>
+        <div class="note"><strong>必須列:</strong> 少なくとも「測量点」と「目標点」の対応が必要です。これらが未設定のままでは読み込みできません。</div>
+        <p>緯度・経度列を対応させた場合は、野帳の「位置」列に内部データとして保存され、セル表示は「設定済」になります。</p>
+        <p class="muted">読み込み後は野帳テーブルがその内容で置き換わります。必要に応じて <code>レイヤ更新</code> を実行して計算とレイヤへ反映してください。</p>
+      </section>
+
+      <section>
+        <h2>6. 位置と開始座標</h2>
+        <ul>
+          <li>「位置」が入力された行は、開始座標逆算のアンカーとして使われます。</li>
+          <li>同じ連結ブロック内に位置が複数ある場合は、若い行番号側を優先します。</li>
+          <li>開始座標が確定できない場合、計算やレイヤ更新は停止します。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>7. 計算・レイヤ更新</h2>
+        <p><code>レイヤ更新</code> を押すと、現在の野帳内容から計算を行い、管理レイヤを再生成します。</p>
+        <ul>
+          <li><code>HD</code>、<code>ΔX</code>、<code>ΔY</code> を更新</li>
+          <li>点・線・面レイヤを生成</li>
+          <li>連携先がある場合は、連携先作業の完了データも同時表示</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>8. エクスポート</h2>
+        <ul>
+          <li><code>エクスポート</code> は完了フラグ（完了フラグ = 1）が立っている作業のみ実行できます。</li>
+          <li>HTML 帳票、地図 PDF、関連出力をまとめて生成します。</li>
+          <li>出力先フォルダはエクスポートダイアログで指定します。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>9. 運用メモ</h2>
+        <ul>
+          <li>測点名を変更した場合、参照している接続点・閉合点は自動追従します。</li>
+          <li>連携は作業単位です。連携先は完了済みデータである必要があります。</li>
+          <li>どうしてもレイヤを自由編集したい場合は、別レイヤへ複製して使用してください。</li>
+          <li><code>プラグインを隠す</code> ボタンでプラグインを非表示にし、QGISキャンバスを広く使えます。ツールバーアイコンで再表示できます。</li>
+        </ul>
+      </section>
+
+    </div><!-- #content-ja -->
+
+    <!-- ===== ENGLISH ===== -->
+    <div id="content-en" style="display:none">
+
+      <section>
+        <h2>1. Overview</h2>
+        <p>This plugin provides an integrated workspace for compass survey entry, connecting-point and closure management, traverse computation, layer generation, and report export.</p>
+        <div class="note">Layers are managed by the plugin. You may change symbology, but edit source data in the field notebook table, not in the QGIS layer.</div>
+      </section>
+
+      <section>
+        <h2>2. Layout</h2>
+        <table>
+          <tr><th>Left panel</th><td>Workspace Status, Project / Work Name selection, Block Name, Deliverables</td></tr>
+          <tr><th>Notebook tab</th><td>Field notebook entry, Survey Settings, Connect To / Close To, Geo coordinates</td></tr>
+          <tr><th>Project tab</th><td>Project management info, Calculation Summary, language toggle</td></tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>3. Workspace Status Group</h2>
+        <p>The <strong>Workspace Status</strong> group at the top of the left panel shows the current data storage state.</p>
+        <table>
+          <tr><th>Current Data</th><td>The SQLite file currently loaded. Shows "Not Created" when the QGIS project has not been saved yet.</td></tr>
+          <tr><th>Switch</th><td>Enabled when archived data exists. Use the "Switch Saved Data" dialog to reload a past dataset.</td></tr>
+          <tr><th>New</th><td>Archives the current SQLite to the archive folder and creates a new one. Save the QGIS project first.</td></tr>
+        </table>
+        <div class="note">
+          The SQLite file is created in the same folder as the QGIS project. Archived files are stored in <code>_compass_traverse_gis_archive</code>.
+        </div>
+      </section>
+
+      <section>
+        <h2>4. Field Notebook Entry</h2>
+        <ul>
+          <li><code>From</code> and <code>To</code> accept any string, not just numbers.</li>
+          <li><code>Connect To</code> and <code>Close To</code>: double-click to pick from a station list.</li>
+          <li><code>Geo</code> column: double-click to open the latitude/longitude entry dialog.</li>
+          <li>Blank rows are allowed as visual separators.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>5. Import Survey Table</h2>
+        <p>Click <code>Import Survey Table</code> to load a CSV or Excel file into the notebook.</p>
+        <ul>
+          <li>Supported formats: <code>.csv</code>, <code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>.</li>
+          <li>CSV encoding is tried in order: <code>utf-8-sig</code>, <code>cp932</code>, <code>utf-8</code>.</li>
+          <li>Delimiter is auto-detected; falls back to comma.</li>
+        </ul>
+        <h3>Auto-detected column keywords</h3>
+        <table>
+          <tr><th>Notebook column</th><th>Example keywords</th></tr>
+          <tr><td>From</td><td>from, 測量点, 測点, 起点</td></tr>
+          <tr><td>To</td><td>to, target, 目標点, 目標</td></tr>
+          <tr><td>Connect To</td><td>connect, 接続点, 接続</td></tr>
+          <tr><td>Close To</td><td>close, 閉合点, 閉合</td></tr>
+          <tr><td>SD</td><td>SD, slope distance, 斜距離</td></tr>
+          <tr><td>INC</td><td>INC, inclination, 高低角</td></tr>
+          <tr><td>AZ</td><td>AZ, azimuth, 方位角</td></tr>
+          <tr><td>HD</td><td>HD, horizontal distance, 水平距離</td></tr>
+          <tr><td>Latitude</td><td>lat, latitude, 緯度</td></tr>
+          <tr><td>Longitude</td><td>lon, lng, longitude, 経度</td></tr>
+        </table>
+        <h3>Import workflow</h3>
+        <ol>
+          <li>Select a file</li>
+          <li>Review auto-detected column mappings in the dialog</li>
+          <li>Adjust manually if needed</li>
+          <li>Import proceeds when at least <code>From</code> and <code>To</code> are mapped</li>
+        </ol>
+        <div class="note"><strong>Required:</strong> At least the From and To columns must be mapped. Import is blocked otherwise.</div>
+        <p>If latitude/longitude columns are mapped, the data is stored internally in the <code>Geo</code> column and the cell shows "Set".</p>
+        <p class="muted">The notebook table is replaced on import. Run <code>Update Layers</code> to apply the changes to the calculation and layers.</p>
+      </section>
+
+      <section>
+        <h2>6. Geo and Start Coordinate</h2>
+        <ul>
+          <li>A row with a <code>Geo</code> value is used as an anchor to back-calculate the start coordinate.</li>
+          <li>If multiple Geo values exist in the same block, the earliest row takes priority.</li>
+          <li>If the start coordinate cannot be resolved, computation and layer update will stop.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>7. Update Layers</h2>
+        <p>Click <code>Update Layers</code> to run the traverse computation and regenerate managed layers.</p>
+        <ul>
+          <li>Updates <code>HD</code>, <code>dX</code>, and <code>dY</code></li>
+          <li>Generates point, line, and polygon layers</li>
+          <li>If a linked project exists, its completed data is displayed simultaneously</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>8. Export</h2>
+        <ul>
+          <li><code>Export</code> is only available when Completion flag is set (Completion = 1).</li>
+          <li>Generates HTML report, map PDF, and related outputs together.</li>
+          <li>The output folder is specified in the Export dialog.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>9. Notes</h2>
+        <ul>
+          <li>When a station name is changed, Connect To and Close To references update automatically.</li>
+          <li>Linking works per work record. The linked target must be marked complete.</li>
+          <li>If you need to freely edit a layer, duplicate it to a separate layer first.</li>
+          <li>The <code>Hide Plugin</code> button hides the plugin panel so you can use the full QGIS canvas. Click the toolbar icon to restore it.</li>
+        </ul>
+      </section>
+
+    </div><!-- #content-en -->
+
+  </main>
+
+  <script>
+    function getLang() {
+      var hash = window.location.hash.replace('#', '');
+      if (hash === 'lang=en') return 'en';
+      return 'ja';
+    }
+    function applyLang(lang) {
+      document.getElementById('content-ja').style.display = (lang === 'ja') ? '' : 'none';
+      document.getElementById('content-en').style.display = (lang === 'en') ? '' : 'none';
+      document.documentElement.lang = lang;
+      document.querySelectorAll('[data-ja]').forEach(function(el){ el.style.display = (lang === 'ja') ? '' : 'none'; });
+      document.querySelectorAll('[data-en]').forEach(function(el){ el.style.display = (lang === 'en') ? '' : 'none'; });
+    }
+    function toggleLang() {
+      var next = (getLang() === 'ja') ? 'en' : 'ja';
+      window.location.hash = 'lang=' + next;
+      applyLang(next);
+    }
+    applyLang(getLang());
+  </script>
+</body>
+</html>

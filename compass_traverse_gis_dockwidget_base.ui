@@ -1,0 +1,555 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CompassTraverseGisDockWidgetBase</class>
+ <widget class="QDockWidget" name="CompassTraverseGisDockWidgetBase">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>460</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Compass Traverse GIS</string>
+  </property>
+  <widget class="QWidget" name="dockWidgetContents">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
+     <widget class="QSplitter" name="mainSplitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <widget class="QWidget" name="leftPanelWidget">
+       <layout class="QVBoxLayout" name="leftPanelLayout">
+        <item>
+         <widget class="QGroupBox" name="workspaceGroup">
+          <property name="title">
+           <string>Workspace Status</string>
+          </property>
+          <layout class="QGridLayout" name="workspaceLayout">
+           <item row="0" column="0">
+            <widget class="QLabel" name="workspacePathLabel">
+             <property name="text">
+              <string>Current Data</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1" colspan="3">
+            <widget class="QLabel" name="workspacePathValueLabel">
+             <property name="text">
+              <string>Not Created</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <spacer name="workspaceButtonSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeType">
+              <enum>QSizePolicy::Expanding</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size><width>0</width><height>0</height></size>
+             </property>
+            </spacer>
+           </item>
+           <item row="1" column="2">
+            <widget class="QPushButton" name="openWorkspaceButton">
+             <property name="text">
+              <string>Switch</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="3">
+            <widget class="QPushButton" name="createWorkspaceButton">
+             <property name="text">
+              <string>New</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="workspaceProjectGroup">
+          <property name="title">
+           <string/>
+          </property>
+          <layout class="QGridLayout" name="workspaceProjectLayout">
+           <item row="0" column="0">
+            <widget class="QLabel" name="workspaceProjectLabel">
+             <property name="text">
+              <string>Project</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QComboBox" name="workspaceProjectCombo"/>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="projectSelectorLabel">
+             <property name="text">
+              <string>Work Name</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QComboBox" name="projectSelectorCombo"/>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="blockNameGroup">
+          <property name="title">
+           <string>Block Name</string>
+          </property>
+          <layout class="QGridLayout" name="blockNameLayout">
+           <property name="horizontalSpacing">
+            <number>8</number>
+           </property>
+           <property name="verticalSpacing">
+            <number>6</number>
+           </property>
+           <item row="0" column="0">
+            <widget class="QLabel" name="blockNamePanelLabel">
+             <property name="text">
+              <string>Block Name</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1" alignment="Qt::AlignRight|Qt::AlignVCenter">
+            <widget class="QComboBox" name="blockNameCombo"/>
+           </item>
+           <item row="1" column="1" alignment="Qt::AlignRight|Qt::AlignVCenter">
+            <widget class="QPushButton" name="renameBlockNameButton">
+             <property name="text">
+              <string>Rename</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QWidget" name="branchExcludeWidget">
+          <layout class="QVBoxLayout" name="branchExcludeLayout">
+           <property name="leftMargin"><number>4</number></property>
+           <property name="topMargin"><number>2</number></property>
+           <property name="rightMargin"><number>4</number></property>
+           <property name="bottomMargin"><number>2</number></property>
+           <item>
+            <widget class="QCheckBox" name="excludeBranchCheck">
+             <property name="text">
+              <string>Exclude Connecting Lines</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="branchExcludeHintLabel">
+             <property name="text">
+              <string>Rows with red text are branch connecting lines excluded from total length.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="deliverableGroup">
+          <property name="title">
+           <string>Deliverables</string>
+          </property>
+          <layout class="QGridLayout" name="deliverableLayout">
+           <item row="0" column="0">
+            <widget class="QCheckBox" name="areaDeliverableCheck">
+             <property name="text">
+              <string>Area Deliverable</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QCheckBox" name="routeDeliverableCheck">
+             <property name="text">
+              <string>Route Deliverable</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QCheckBox" name="layoutDeliverableCheck">
+             <property name="text">
+              <string>Layout</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QPushButton" name="exportButton">
+             <property name="text">
+              <string>Export</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="2">
+            <widget class="QPushButton" name="manualButton">
+             <property name="text">
+              <string>Manual</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <spacer name="leftPanelSpacer">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>40</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="rightPanelWidget">
+       <layout class="QVBoxLayout" name="rightPanelLayout">
+        <item>
+         <widget class="QTabWidget" name="mainTabWidget">
+          <property name="currentIndex">
+           <number>0</number>
+          </property>
+          <widget class="QWidget" name="notebookTab">
+           <attribute name="title">
+            <string>Notebook</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="notebookTabLayout">
+            <item>
+             <widget class="QGroupBox" name="notebookSettingsGroup">
+              <property name="title">
+               <string>Survey Settings</string>
+              </property>
+              <layout class="QGridLayout" name="notebookSettingsLayout">
+               <property name="leftMargin">
+                <number>8</number>
+               </property>
+               <property name="topMargin">
+                <number>8</number>
+               </property>
+               <property name="rightMargin">
+                <number>8</number>
+               </property>
+               <property name="bottomMargin">
+                <number>8</number>
+               </property>
+               <property name="horizontalSpacing">
+                <number>18</number>
+               </property>
+               <property name="verticalSpacing">
+                <number>6</number>
+               </property>
+               <!-- Row 0: unit combos / Update Layers / Export -->
+               <item row="0" column="0">
+                <widget class="QLabel" name="distanceUnitLabel">
+                 <property name="text">
+                  <string>Distance Unit</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="distanceUnitCombo"/>
+               </item>
+               <item row="0" column="2">
+                <widget class="QLabel" name="inclinationUnitLabel">
+                 <property name="text">
+                  <string>Inclination Unit</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="3">
+                <widget class="QComboBox" name="inclinationUnitCombo"/>
+               </item>
+               <item row="0" column="4">
+                <widget class="QPushButton" name="calculatePreviewButton">
+                 <property name="text">
+                  <string>Update Layers</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="5">
+                <spacer name="settingsHorizontalSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+               <item row="0" column="6" alignment="Qt::AlignRight|Qt::AlignVCenter">
+                <widget class="QPushButton" name="notebookExportButton">
+                 <property name="text">
+                  <string>Export GPKG</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="7" alignment="Qt::AlignRight|Qt::AlignVCenter">
+                <widget class="QCheckBox" name="notebookAppendExistingLayerCheck">
+                 <property name="text">
+                  <string>Append to Existing GPKG</string>
+                 </property>
+                </widget>
+               </item>
+               <!-- Row 1: declination / Import / Closed Display -->
+               <item row="1" column="0">
+                <widget class="QLabel" name="declinationLabel">
+                 <property name="text">
+                  <string>Declination</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QDoubleSpinBox" name="magneticDeclinationSpin">
+                 <property name="buttonSymbols">
+                  <enum>QAbstractSpinBox::NoButtons</enum>
+                 </property>
+                 <property name="suffix">
+                  <string> °</string>
+                 </property>
+                 <property name="decimals">
+                  <number>4</number>
+                 </property>
+                 <property name="minimum">
+                  <double>-30.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>30.000000000000000</double>
+                 </property>
+                 <property name="singleStep">
+                  <double>0.010000000000000</double>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="2" colspan="2">
+                <widget class="QLabel" name="declinationHintLabel">
+                 <property name="text">
+                  <string>Magnetic declination (+ East / − West)</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="4">
+                <widget class="QPushButton" name="fullscreenButton">
+                 <property name="text">
+                  <string>Hide Plugin</string>
+                 </property>
+                 <property name="toolTip">
+                  <string>Hide the plugin to use the full QGIS canvas</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="6" alignment="Qt::AlignRight|Qt::AlignVCenter">
+                <widget class="QPushButton" name="importNotebookButton">
+                 <property name="text">
+                  <string>Import Survey Table</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="7" alignment="Qt::AlignRight|Qt::AlignVCenter">
+                <widget class="QCheckBox" name="closureEnabledCheck">
+                 <property name="text">
+                  <string>Closed Display</string>
+                 </property>
+                </widget>
+               </item>
+               <!-- Hidden widgets retained for Python code compatibility -->
+               <item row="2" column="0">
+                <widget class="QLabel" name="startStationLabel">
+                 <property name="visible"><bool>false</bool></property>
+                 <property name="text">
+                  <string>Start Station</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QLineEdit" name="startStationEdit">
+                 <property name="visible"><bool>false</bool></property>
+                 <property name="text">
+                  <string>BP</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="2">
+                <widget class="QLabel" name="startXLabel">
+                 <property name="visible"><bool>false</bool></property>
+                 <property name="text">
+                  <string>Start X</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="3">
+                <widget class="QDoubleSpinBox" name="startXSpin">
+                 <property name="visible"><bool>false</bool></property>
+                 <property name="decimals">
+                  <number>3</number>
+                 </property>
+                 <property name="minimum">
+                  <double>-99999999.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>99999999.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="4">
+                <widget class="QLabel" name="startYLabel">
+                 <property name="visible"><bool>false</bool></property>
+                 <property name="text">
+                  <string>Start Y</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="5">
+                <widget class="QDoubleSpinBox" name="startYSpin">
+                 <property name="visible"><bool>false</bool></property>
+                 <property name="decimals">
+                  <number>3</number>
+                 </property>
+                 <property name="minimum">
+                  <double>-99999999.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>99999999.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTableWidget" name="observationTable"/>
+            </item>
+            <item>
+             <widget class="QLabel" name="notebookHintLabel">
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="calculationTab">
+           <attribute name="title">
+            <string>Project</string>
+           </attribute>
+           <layout class="QHBoxLayout" name="calculationTabLayout">
+            <item>
+             <widget class="QSplitter" name="calculationSplitter">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <widget class="QGroupBox" name="legResultGroup">
+               <property name="title">
+                <string>Project Details</string>
+               </property>
+               <layout class="QVBoxLayout" name="legResultLayout">
+                <item>
+                 <widget class="QTableWidget" name="legResultTable"/>
+                </item>
+                <item>
+                 <widget class="QWidget" name="languageSectionWidget" native="true">
+                  <layout class="QHBoxLayout" name="languageSectionLayout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QPushButton" name="languageToggleButton">
+                     <property name="text">
+                      <string>Language</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="currentLanguageLabel">
+                     <property name="text">
+                      <string>Japanese</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <spacer name="languageSectionSpacer">
+                     <property name="orientation">
+                      <enum>Qt::Horizontal</enum>
+                     </property>
+                     <property name="sizeHint" stdset="0">
+                      <size>
+                       <width>40</width>
+                       <height>20</height>
+                      </size>
+                     </property>
+                    </spacer>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QGroupBox" name="summaryGroup">
+               <property name="title">
+                <string>Calculation Summary</string>
+               </property>
+               <layout class="QVBoxLayout" name="summaryLayout">
+                <item>
+                 <widget class="QTableWidget" name="summaryTable"/>
+                </item>
+               </layout>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

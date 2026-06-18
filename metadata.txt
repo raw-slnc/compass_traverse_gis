@@ -1,0 +1,24 @@
+[general]
+name=Compass Traverse GIS
+qgisMinimumVersion=3.22
+qgisMaximumVersion=3.99
+description=Compass survey import, traverse adjustment, and GIS output for QGIS.
+version=0.1.0
+author=Hideharu Masai
+email=hideharumasai@void.mints.ne.jp
+
+about=Imports compass survey data from CSV or manual entry, adjusts traverses, integrates with existing GIS data, and outputs GeoPackage layers and survey deliverables.
+
+tracker=https://github.com/raw-slnc/compass_traverse_gis/issues
+repository=https://github.com/raw-slnc/compass_traverse_gis
+homepage=https://github.com/raw-slnc/compass_traverse_gis
+
+hasProcessingProvider=no
+changelog=0.1.0 - Initial release
+
+tags=surveying, traverse, geopackage, csv, forestry, qgis
+category=Vector
+icon=icon.png
+experimental=True
+deprecated=False
+server=False

@@ -325,6 +325,19 @@
                  </property>
                 </spacer>
                </item>
+               <item row="0" column="6" alignment="Qt::AlignRight|Qt::AlignVCenter">
+                <widget class="QPushButton" name="floatingFullscreenButton">
+                 <property name="text">
+                  <string>Fullscreen</string>
+                 </property>
+                 <property name="toolTip">
+                  <string>Toggle fullscreen (only works when floating)</string>
+                 </property>
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
+                </widget>
+               </item>
                <!-- Row 1: declination / Import / Closed Display -->
                <item row="1" column="0">
                 <widget class="QLabel" name="declinationLabel">

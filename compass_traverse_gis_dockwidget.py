@@ -113,6 +113,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._preview_layer_ids = []
         self._preview_group_name = ""
         self._preview_group_node = None
+        self._pre_fullscreen_geometry = None
+        self._is_floating_fullscreen = False
         self._project_snapshots = {}
         self._loading_project_state = False
         self._normalizing_geo_assignments = False
@@ -242,6 +244,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         wide_button_width = 150
         for button in (
             self.importNotebookButton,
+            self.floatingFullscreenButton,
         ):
             button.setFixedWidth(wide_button_width)
 
@@ -314,6 +317,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.notebookAppendExistingLayerCheck.toggled.connect(self._handle_state_changed)
         self.notebookAppendExistingLayerCheck.toggled.connect(self._on_overwrite_check_toggled)
         self.notebookExportButton.clicked.connect(self._export_gpkg)
+        self.floatingFullscreenButton.clicked.connect(self._toggle_floating_fullscreen)
+        self.topLevelChanged.connect(self._on_floating_state_changed)
         self.excludeBranchCheck.toggled.connect(self._on_exclude_branch_toggled)
         self.magneticDeclinationSpin.valueChanged.connect(self._handle_state_changed)
 
@@ -1734,6 +1739,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.currentLanguageLabel.setText("English")
         else:
             self.currentLanguageLabel.setText("Japanese")
+        self._update_fullscreen_button_label()
 
     def _retranslate_dynamic_texts(self):
         self._rebuild_summary_table(self._current_summary_mode, clear_values=False)
@@ -3542,6 +3548,47 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                         best_num, best_path = num, f
         return best_path
 
+    def _remove_gpkg_layers_from_panel(self, gpkg_path):
+        """Remove layers loaded from gpkg_path from the layer panel, then clean up empty groups."""
+        project = QgsProject.instance()
+        root = project.layerTreeRoot()
+        gpkg_str = str(gpkg_path)
+
+        layers_to_remove = [
+            layer for layer in project.mapLayers().values()
+            if layer.source().startswith(gpkg_str + "|") or layer.source() == gpkg_str
+        ]
+        if not layers_to_remove:
+            return
+
+        parent_groups = set()
+        for layer in layers_to_remove:
+            node = root.findLayer(layer.id())
+            if node is not None:
+                parent = node.parent()
+                if parent is not None and parent is not root:
+                    parent_groups.add(parent)
+
+        for layer in layers_to_remove:
+            project.removeMapLayer(layer.id())
+
+        def remove_if_empty(group):
+            if group is None or group is root:
+                return
+            try:
+                parent = group.parent()
+                if parent is None:
+                    return
+                if len(group.children()) == 0:
+                    parent.removeChildNode(group)
+                    if parent is not root:
+                        remove_if_empty(parent)
+            except Exception:
+                pass
+
+        for group in parent_groups:
+            remove_if_empty(group)
+
     def _export_gpkg(self):
         project_dir = self._project_directory()
         if project_dir is None:
@@ -3594,6 +3641,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             gpkg_path = self._latest_gpkg_path(output_dir, safe_work)
             if gpkg_path is None:
                 gpkg_path = output_dir / f"{safe_work}_001.gpkg"
+            else:
+                self._remove_gpkg_layers_from_panel(gpkg_path)
         else:
             gpkg_path = self._next_gpkg_path(output_dir, safe_work)
 
@@ -3692,6 +3741,36 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 pass
             self._preview_group_node = None
         self._preview_group_name = ""
+
+    def _toggle_floating_fullscreen(self):
+        if not self.isFloating():
+            return
+        if self._is_floating_fullscreen:
+            self._is_floating_fullscreen = False
+            if self._pre_fullscreen_geometry is not None:
+                self.setGeometry(self._pre_fullscreen_geometry)
+                self._pre_fullscreen_geometry = None
+        else:
+            self._pre_fullscreen_geometry = self.geometry()
+            screen = QtWidgets.QApplication.screenAt(self.pos())
+            if screen is None:
+                screen = QtWidgets.QApplication.primaryScreen()
+            self.setGeometry(screen.geometry())
+            self._is_floating_fullscreen = True
+        self._update_fullscreen_button_label()
+
+    def _on_floating_state_changed(self, is_floating):
+        self.floatingFullscreenButton.setEnabled(is_floating)
+        if not is_floating:
+            self._is_floating_fullscreen = False
+            self._pre_fullscreen_geometry = None
+        self._update_fullscreen_button_label()
+
+    def _update_fullscreen_button_label(self):
+        if self._current_language_code == "ja":
+            self.floatingFullscreenButton.setText("全画面解除" if self._is_floating_fullscreen else "全画面")
+        else:
+            self.floatingFullscreenButton.setText("Exit Full" if self._is_floating_fullscreen else "Fullscreen")
 
     def showEvent(self, event):
         super().showEvent(event)

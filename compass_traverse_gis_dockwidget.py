@@ -38,12 +38,14 @@ from qgis.core import (
     QgsFillSymbol,
     QgsField,
     QgsGeometry,
+
     QgsLineSymbol,
     QgsMarkerSymbol,
     QgsPointXY,
     QgsProject,
     QgsRectangle,
     QgsRuleBasedRenderer,
+    QgsVectorFileWriter,
     QgsVectorLayer,
 )
 
@@ -110,6 +112,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._start_coordinate_defined = False
         self._preview_layer_ids = []
         self._preview_group_name = ""
+        self._preview_group_node = None
         self._project_snapshots = {}
         self._loading_project_state = False
         self._normalizing_geo_assignments = False
@@ -230,6 +233,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.calculatePreviewButton,
             self.exportButton,
             self.manualButton,
+            self.notebookExportButton,
             self.renameBlockNameButton,
             self.languageToggleButton,
         ):
@@ -237,7 +241,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         wide_button_width = 150
         for button in (
-            self.notebookExportButton,
             self.importNotebookButton,
         ):
             button.setFixedWidth(wide_button_width)
@@ -309,6 +312,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.startYSpin.valueChanged.connect(self._handle_start_coordinate_changed)
         self.closureEnabledCheck.toggled.connect(self._handle_state_changed)
         self.notebookAppendExistingLayerCheck.toggled.connect(self._handle_state_changed)
+        self.notebookAppendExistingLayerCheck.toggled.connect(self._on_overwrite_check_toggled)
+        self.notebookExportButton.clicked.connect(self._export_gpkg)
         self.excludeBranchCheck.toggled.connect(self._on_exclude_branch_toggled)
         self.magneticDeclinationSpin.valueChanged.connect(self._handle_state_changed)
 
@@ -3196,7 +3201,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def _create_preview_root_group(self, group_name):
         root = QgsProject.instance().layerTreeRoot()
         self._preview_group_name = group_name
-        return root.insertGroup(0, group_name)
+        group = root.insertGroup(0, group_name)
+        self._preview_group_node = group
+        return group
 
     def _add_layer_to_group(self, layer, group, visible=True):
         layer.setReadOnly(True)
@@ -3281,11 +3288,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         )
         layer.renderer().setSymbol(symbol)
 
-    def _create_preview_point_layer(self, computation, project_name, group,
-                                     observations=None):
+    def _build_point_layer(self, computation, block_name, observations=None):
         layer = QgsVectorLayer(
             f"Point{self._project_crs_suffix()}",
-            f"{project_name or 'Compass Traverse'} Points",  # project_name is now block_name
+            f"{block_name or 'Compass Traverse'} Points",
             "memory",
         )
         provider = layer.dataProvider()
@@ -3314,6 +3320,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             features.append(feature)
         provider.addFeatures(features)
         layer.updateExtents()
+        return layer
+
+    def _create_preview_point_layer(self, computation, project_name, group,
+                                     observations=None):
+        layer = self._build_point_layer(computation, project_name, observations)
         self._apply_point_layer_style(layer)
         self._add_layer_to_group(layer, group, visible=True)
 
@@ -3375,10 +3386,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return "area_edge"
         return "route"
 
-    def _create_preview_line_layer(self, computation, project_name, observations, block_name, group):
+    def _build_line_layer(self, computation, block_name, observations):
         layer = QgsVectorLayer(
             f"LineString{self._project_crs_suffix()}",
-            f"{project_name or 'Compass Traverse'} Lines",
+            f"{block_name or 'Compass Traverse'} Lines",
             "memory",
         )
         provider = layer.dataProvider()
@@ -3398,8 +3409,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         features = []
         current_from = computation.start_coordinate
-        if self.closureEnabledCheck.isChecked():
-            current_from = computation.start_coordinate
         for leg_index, (leg, observation) in enumerate(zip(computation.leg_results, observations)):
             target = leg.target_coordinate
             dx = leg.delta_x
@@ -3433,6 +3442,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             current_from = target
         provider.addFeatures(features)
         layer.updateExtents()
+        return layer
+
+    def _create_preview_line_layer(self, computation, project_name, observations, block_name, group):
+        layer = self._build_line_layer(computation, block_name, observations)
         self._apply_line_layer_style(layer)
         line_visible = not (
             self.closureEnabledCheck.isChecked()
@@ -3440,15 +3453,15 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         )
         self._add_layer_to_group(layer, group, visible=line_visible)
 
-    def _create_preview_polygon_layer(self, computation, project_record, block_name, group):
+    def _build_polygon_layer(self, computation, block_name):
         closure = computation.latest_closure()
         if closure is None:
-            return
+            return None
         point_sequence = [computation.start_coordinate]
         for leg in computation.leg_results[: closure.leg_index + 1]:
             point_sequence.append(leg.corrected_target_coordinate or leg.target_coordinate)
         if len(point_sequence) < 3:
-            return
+            return None
         last_point = point_sequence[-1]
         first_point = point_sequence[0]
         if last_point.x != first_point.x or last_point.y != first_point.y:
@@ -3456,7 +3469,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         layer = QgsVectorLayer(
             f"Polygon{self._project_crs_suffix()}",
-            f"{block_name or project_record.project_name or 'Compass Traverse'}",
+            f"{block_name or 'Compass Traverse'}",
             "memory",
         )
         provider = layer.dataProvider()
@@ -3478,18 +3491,191 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         )
         feature.setAttributes(
             [
-                block_name or project_record.project_name or "Area",
+                block_name or "Area",
                 area_value or 0.0,
                 (area_value or 0.0) / 10000.0,
             ]
         )
         provider.addFeature(feature)
         layer.updateExtents()
+        return layer
+
+    def _create_preview_polygon_layer(self, computation, project_record, block_name, group):
+        layer = self._build_polygon_layer(computation, block_name)
+        if layer is None:
+            return
         self._apply_polygon_layer_style(layer)
         self._add_layer_to_group(layer, group, visible=True)
 
     def _linked_project_layer_entry(self):
         return None, ""
+
+    def _on_overwrite_check_toggled(self, checked):
+        if self._loading_project_state:
+            return
+        if not checked:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export GPKG"),
+                self.tr("Saves as a new file.\nFiles are saved with a 3-digit sequential number."),
+            )
+
+    def _next_gpkg_path(self, output_dir, safe_work):
+        pattern = re.compile(rf"^{re.escape(safe_work)}_(\d{{3}})\.gpkg$")
+        max_num = 0
+        if output_dir.exists():
+            for f in output_dir.iterdir():
+                m = pattern.match(f.name)
+                if m:
+                    max_num = max(max_num, int(m.group(1)))
+        return output_dir / f"{safe_work}_{max_num + 1:03d}.gpkg"
+
+    def _latest_gpkg_path(self, output_dir, safe_work):
+        pattern = re.compile(rf"^{re.escape(safe_work)}_(\d{{3}})\.gpkg$")
+        best_num, best_path = 0, None
+        if output_dir.exists():
+            for f in output_dir.iterdir():
+                m = pattern.match(f.name)
+                if m:
+                    num = int(m.group(1))
+                    if num > best_num:
+                        best_num, best_path = num, f
+        return best_path
+
+    def _export_gpkg(self):
+        project_dir = self._project_directory()
+        if project_dir is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export GPKG"),
+                self.tr("Please save the QGIS project first."),
+            )
+            return
+
+        observations, _notes = self._collect_observations_from_table()
+        if not observations:
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("Export GPKG"),
+                self.tr("No observation rows to export."),
+            )
+            return
+
+        start_coordinate, coordinate_note = self._resolve_start_coordinate(observations)
+        if start_coordinate is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export GPKG"),
+                coordinate_note or self.tr("Start coordinate is not set."),
+            )
+            return
+
+        try:
+            block_computations = self._compute_blocks_chained(
+                observations, start_coordinate, self._current_unit_profile()
+            )
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export GPKG"),
+                self.tr("Could not prepare export data.\n{}").format(error),
+            )
+            return
+
+        project_name = self._project_record.project_name.strip() or self.tr("Worksite A")
+        work_name = self._project_record.business_name.strip() or self.tr("Work")
+        safe_project = re.sub(r'[\\/:*?"<>|]', "_", project_name)
+        safe_work = re.sub(r'[\\/:*?"<>|]', "_", work_name)
+
+        output_dir = project_dir / "compass_traverse_gis" / safe_project
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.notebookAppendExistingLayerCheck.isChecked():
+            gpkg_path = self._latest_gpkg_path(output_dir, safe_work)
+            if gpkg_path is None:
+                gpkg_path = output_dir / f"{safe_work}_001.gpkg"
+        else:
+            gpkg_path = self._next_gpkg_path(output_dir, safe_work)
+
+        layer_specs = []
+        for blk_obs, comp in block_computations:
+            block_name = self._block_display_name(blk_obs[0].block_id if blk_obs else "")
+            pt_layer = self._build_point_layer(comp, block_name, blk_obs)
+            layer_specs.append((pt_layer, f"{block_name} Points", "point"))
+            ln_layer = self._build_line_layer(comp, block_name, blk_obs)
+            layer_specs.append((ln_layer, f"{block_name} Lines", "line"))
+            if self.closureEnabledCheck.isChecked():
+                pg_layer = self._build_polygon_layer(comp, block_name)
+                if pg_layer is not None:
+                    layer_specs.append((pg_layer, block_name, "polygon"))
+
+        if not layer_specs:
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("Export GPKG"),
+                self.tr("No layers to export."),
+            )
+            return
+
+        transform_context = QgsProject.instance().transformContext()
+        first_layer = True
+        for mem_layer, layer_name, _style in layer_specs:
+            options = QgsVectorFileWriter.SaveVectorOptions()
+            options.driverName = "GPKG"
+            options.layerName = layer_name
+            options.actionOnExistingFile = (
+                QgsVectorFileWriter.CreateOrOverwriteFile
+                if first_layer
+                else QgsVectorFileWriter.CreateOrOverwriteLayer
+            )
+            first_layer = False
+            write_result, err_msg, _, _ = QgsVectorFileWriter.writeAsVectorFormatV3(
+                mem_layer,
+                str(gpkg_path),
+                transform_context,
+                options,
+            )
+            if write_result != QgsVectorFileWriter.NoError:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self.tr("Export GPKG"),
+                    self.tr("Failed to write layer '{}':\n{}").format(layer_name, err_msg),
+                )
+                return
+
+        style_applicators = {
+            "point": self._apply_point_layer_style,
+            "line": self._apply_line_layer_style,
+            "polygon": self._apply_polygon_layer_style,
+        }
+        root = QgsProject.instance().layerTreeRoot()
+        proj_group = root.insertGroup(0, project_name)
+        work_group = proj_group.addGroup(work_name)
+
+        for _, layer_name, style_type in reversed(layer_specs):
+            gpkg_layer = QgsVectorLayer(
+                f"{str(gpkg_path)}|layername={layer_name}",
+                layer_name,
+                "ogr",
+            )
+            if not gpkg_layer.isValid():
+                continue
+            style_applicators[style_type](gpkg_layer)
+            QgsProject.instance().addMapLayer(gpkg_layer, False)
+            layer_node = work_group.insertLayer(0, gpkg_layer)
+            layer_node.setExpanded(False)
+
+        proj_group.setExpanded(True)
+        work_group.setExpanded(True)
+
+        self.notebookHintLabel.setText(
+            self.tr("GPKG exported: {}").format(gpkg_path.name)
+        )
+        QtWidgets.QMessageBox.information(
+            self,
+            self.tr("Export GPKG"),
+            self.tr("GPKG export completed.\n{}").format(str(gpkg_path)),
+        )
 
     def _clear_preview_layers(self):
         project = QgsProject.instance()
@@ -3497,10 +3683,15 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if project.mapLayer(layer_id) is not None:
                 project.removeMapLayer(layer_id)
         self._preview_layer_ids.clear()
-        root = project.layerTreeRoot()
-        for child in list(root.children()):
-            if child.name() == self._preview_group_name:
-                root.removeChildNode(child)
+        if self._preview_group_node is not None:
+            try:
+                parent = self._preview_group_node.parent()
+                if parent is not None:
+                    parent.removeChildNode(self._preview_group_node)
+            except Exception:
+                pass
+            self._preview_group_node = None
+        self._preview_group_name = ""
 
     def showEvent(self, event):
         super().showEvent(event)

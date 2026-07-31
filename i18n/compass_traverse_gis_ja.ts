@@ -50,7 +50,7 @@
     <message><source>Exclude Connecting Lines</source><translation>接続線を除く</translation></message>
     <message><source>Rows with red text are branch connecting lines excluded from total length.</source><translation>赤字の文字の行は分岐接続線として延長から除外します。</translation></message>
     <message><source>Mark as Connecting Line (exclude)</source><translation>接続線としてマーク（除外）</translation></message>
-    <message><source>Treat as Route (include)</source><translation>延長として扱う（含める）</translation></message>
+    <message><source>Treat as Line (include)</source><translation>ラインとして扱う（含める）</translation></message>
     <message><source>Reset to Auto</source><translation>自動判定に戻す</translation></message>
     <message><source>Project Details</source><translation>プロジェクト管理</translation></message>
     <message><source>Language</source><translation>Language</translation></message>
@@ -70,6 +70,17 @@
     <message><source>To</source><translation>目標点</translation></message>
     <message><source>Connect To</source><translation>接続点</translation></message>
     <message><source>Close To</source><translation>閉合点</translation></message>
+    <message><source>Excl. Seg.</source><translation>除外区間</translation></message>
+    <message><source>Start</source><translation>開始</translation></message>
+    <message><source>End</source><translation>終了</translation></message>
+    <message><source>Single</source><translation>単独</translation></message>
+    <message><source>Mark Excl. Start</source><translation>開始にする</translation></message>
+    <message><source>Clear Excl. Start</source><translation>開始を解除</translation></message>
+    <message><source>Mark Excl. End</source><translation>終了にする</translation></message>
+    <message><source>Clear Excl. End</source><translation>終了を解除</translation></message>
+    <message><source>Mark Excl. Single</source><translation>単独にする</translation></message>
+    <message><source>Exclude as Single</source><translation>単独で除外</translation></message>
+    <message><source>Clear Excl. Single</source><translation>単独を解除</translation></message>
     <message><source>Geo</source><translation>位置</translation></message>
     <message><source>dX</source><translation>ΔX</translation></message>
     <message><source>dY</source><translation>ΔY</translation></message>
@@ -113,6 +124,18 @@
     <message><source>Calculation error: {}</source><translation>計算エラー: {}</translation></message>
     <message><source>HD, dX, and dY were updated, and managed layers were generated.</source><translation>HD・ΔX・ΔY を更新し、管理レイヤーを生成しました。</translation></message>
     <message><source>Calculated successfully.</source><translation>正常に計算しました。</translation></message>
+    <message><source>Corrected perimeter = {value:.3f} {unit}</source><translation>補正後周長={value:.3f} {unit}</translation></message>
+    <message><source>Corrected area = {square_meters:.3f} m2 ({hectares:.2f} ha)</source><translation>補正後面積={square_meters:.3f} m2 ({hectares:.2f} ha)</translation></message>
+    <message><source> / </source><translation> / </translation></message>
+    <message><source>Row {}: Excluded segment start/end markers are invalid.</source><translation>{}行: 除外区間の始点/終点設定が不正です。</translation></message>
+    <message><source>Row {}: From and To stations are required.</source><translation>{}行: 測量点と目標点が必要です。</translation></message>
+    <message><source>Row {}: {} could not be parsed as a number.</source><translation>{}行: {} が数値として解釈できません。</translation></message>
+    <message><source>Could not compute the start coordinate from the Geo column: {}</source><translation>位置から開始座標を計算できません: {}</translation></message>
+    <message><source>The row with Geo input could not be interpreted as a calculation row.</source><translation>位置が設定された行を計算対象として解釈できませんでした。</translation></message>
+    <message><source>The start coordinate was set automatically from the Geo column.</source><translation>位置から開始座標を自動設定しました。</translation></message>
+    <message><source>The start position is not set. Enter latitude/longitude for any station in the Geo column before running the calculation.</source><translation>開始位置が未設定です。野帳の「位置」列にいずれかの測点の緯度・経度を入力してから計算してください。</translation></message>
+    <message><source>There are no rows to calculate. Enter From, To, distance, and azimuth values.</source><translation>計算対象の行がありません。測量点・目標点・距離・方位角を入力してください。</translation></message>
+    <message><source>There are no calculable blocks.</source><translation>計算可能なブロックがありません。</translation></message>
     <message><source>Complete</source><translation>完了</translation></message>
     <message><source>Editing</source><translation>編集</translation></message>
     <message><source>The same work name already exists.</source><translation>同じ作業名がすでに存在します。</translation></message>
@@ -258,6 +281,34 @@ Set Completion = 1 in the project table before exporting.</source><translation>�
     <message><source>Total</source><translation>合計</translation></message>
     <message><source>Length</source><translation>延長</translation></message>
     <message><source>Slope</source><translation>斜距</translation></message>
+    <message><source>No observation data</source><translation>観測データなし</translation></message>
+    <message><source>Slope Distance Total</source><translation>斜距離合計</translation></message>
+    <message><source>Excluded from calculation</source><translation>計算から除外</translation></message>
+    <message><source>Excluded from output</source><translation>出力から除外</translation></message>
+    <message><source>Length Total</source><translation>延長計</translation></message>
+    <message><source>(after declination correction)</source><translation>（偏差修正後）</translation></message>
+    <message><source>Horizontal</source><translation>水平距離</translation></message>
+    <message><source>Elevation Difference</source><translation>高低差</translation></message>
+    <message><source>Area Survey Notebook</source><translation>面積測量野帳</translation></message>
+    <message><source>Area Summary</source><translation>面積概要</translation></message>
+    <message><source>Line Survey Notebook</source><translation>延長野帳</translation></message>
+    <message><source>No calculation data (run calculation first)</source><translation>計算データなし（先に「計算実行」を行ってください）</translation></message>
+    <message><source>X Total</source><translation>X累計</translation></message>
+    <message><source>Station Count</source><translation>測点数</translation></message>
+    <message><source>points</source><translation>箇所</translation></message>
+    <message><source>Max X</source><translation>x最大値</translation></message>
+    <message><source>Y Total</source><translation>Y累計</translation></message>
+    <message><source>Closure Error</source><translation>閉合差</translation></message>
+    <message><source>Min X</source><translation>x最小値</translation></message>
+    <message><source>Horizontal Total</source><translation>水距累計</translation></message>
+    <message><source>Accuracy (/)</source><translation>精度(/)</translation></message>
+    <message><source>Max Y</source><translation>y最大値</translation></message>
+    <message><source>Elevation Total</source><translation>高度累計</translation></message>
+    <message><source>Accuracy (%)</source><translation>精度(%)</translation></message>
+    <message><source>Min Y</source><translation>y最小値</translation></message>
+    <message><source>Area = |ΣDouble Area| / 2 =</source><translation>面積 = |Σ倍面積| / 2 =</translation></message>
+    <message><source>Calculation Documents</source><translation>計算書類</translation></message>
+    <message><source>Scale</source><translation>縮尺</translation></message>
     <message><source>Horizontal</source><translation>水平</translation></message>
     <message><source>Category</source><translation>区分</translation></message>
     <message><source>Handling</source><translation>扱い</translation></message>

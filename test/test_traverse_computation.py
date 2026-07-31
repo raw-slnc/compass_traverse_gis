@@ -31,6 +31,7 @@ from survey_model import (  # noqa: E402
     normalize_station_label,
     observation_distance_source,
     observation_horizontal_distance,
+    detect_blocks,
     rows_to_project,
     validate_observation_inputs,
 )
@@ -285,6 +286,266 @@ class SurveyModelTest(unittest.TestCase):
 
         workspace.set_active_project("worksite_b")
         self.assertEqual(workspace.active_project().project_name, "事業作業地B")
+
+    def test_detect_blocks_keeps_main_line_continuation_after_connect_to(self):
+        observations = [
+            SurveyObservation(from_station="1", target_station="2"),
+            SurveyObservation(from_station="2", target_station="3", connect_to="3"),
+            SurveyObservation(from_station="3", target_station="4"),
+            SurveyObservation(from_station="4", target_station="5"),
+            SurveyObservation(from_station="5", target_station="6", exclude_marker="開始"),
+            SurveyObservation(from_station="6", target_station="7"),
+            SurveyObservation(from_station="7", target_station="8", exclude_marker="終了"),
+            SurveyObservation(from_station="8", target_station="9"),
+            SurveyObservation(from_station="3", target_station="10", exclude_marker="単独"),
+            SurveyObservation(from_station="10", target_station="11"),
+            SurveyObservation(from_station="11", target_station="12"),
+        ]
+
+        blocks, block_ids = detect_blocks(observations)
+
+        self.assertEqual(block_ids[:8], [block_ids[0]] * 8)
+        self.assertNotEqual(block_ids[7], block_ids[8])
+        self.assertEqual(block_ids[8:], [block_ids[8]] * 3)
+        block_kind_by_id = {block.block_id: block.kind for block in blocks}
+        self.assertEqual(block_kind_by_id[block_ids[0]], BlockKind.ROUTE)
+        self.assertEqual(block_kind_by_id[block_ids[8]], BlockKind.BRANCH)
+
+    def test_detect_blocks_allows_shifted_station_labels_to_stay_on_main_line(self):
+        observations = [
+            SurveyObservation(from_station="1", target_station="2"),
+            SurveyObservation(from_station="2", target_station="3", connect_to="3"),
+            SurveyObservation(from_station="3", target_station="4"),
+            SurveyObservation(from_station="5", target_station="6", exclude_marker="開始"),
+            SurveyObservation(from_station="6", target_station="7"),
+            SurveyObservation(from_station="7", target_station="8", exclude_marker="終了"),
+            SurveyObservation(from_station="8", target_station="9"),
+            SurveyObservation(from_station="9", target_station="10"),
+            SurveyObservation(from_station="3", target_station="11", exclude_marker="単独"),
+            SurveyObservation(from_station="11", target_station="12"),
+            SurveyObservation(from_station="12", target_station="13"),
+        ]
+
+        blocks, block_ids = detect_blocks(observations)
+
+        self.assertEqual(block_ids[:8], [block_ids[0]] * 8)
+        self.assertNotEqual(block_ids[7], block_ids[8])
+        self.assertEqual(block_ids[8:], [block_ids[8]] * 3)
+
+    def test_detect_blocks_handles_multiple_closures_with_pending_junction(self):
+        # connect_to="A2" is self-referential (it names this row's own target),
+        # so it never resolves as a real departure anywhere later in this data
+        # and junction_pending stays armed for the rest of the rows. The
+        # second closure (B loop) must still start its own block.
+        observations = [
+            SurveyObservation(from_station="A1", target_station="A2", connect_to="A2"),
+            SurveyObservation(from_station="A2", target_station="A3"),
+            SurveyObservation(from_station="A3", target_station="A4"),
+            SurveyObservation(from_station="A4", target_station="A1", close_to="A1"),
+            SurveyObservation(from_station="B1", target_station="B2"),
+            SurveyObservation(from_station="B2", target_station="B3"),
+            SurveyObservation(from_station="B3", target_station="B1", close_to="B1"),
+        ]
+
+        blocks, block_ids = detect_blocks(observations)
+
+        self.assertEqual(block_ids[:4], [block_ids[0]] * 4)
+        self.assertEqual(block_ids[4:], [block_ids[4]] * 3)
+        self.assertNotEqual(block_ids[3], block_ids[4])
+        block_kind_by_id = {block.block_id: block.kind for block in blocks}
+        self.assertEqual(block_kind_by_id[block_ids[0]], BlockKind.AREA)
+        self.assertEqual(block_kind_by_id[block_ids[4]], BlockKind.AREA)
+
+    def test_detect_blocks_forward_reference_connect_to_suspends_immediately(self):
+        # connect_to="65" names a different (not yet reached) station, unlike
+        # the self-referential case above. The line up to 48 must suspend
+        # right away, the 48->49 leg is a standalone connecting branch, 49..65
+        # is its own closed area, and 65..85 resumes the ORIGINAL line
+        # (48 and 65 are the same physical point) and closes back to BP.
+        observations = [
+            SurveyObservation(from_station="BP", target_station="1"),
+            SurveyObservation(from_station="1", target_station="47"),
+            SurveyObservation(from_station="47", target_station="48", connect_to="65"),
+            SurveyObservation(from_station="48", target_station="49"),
+            SurveyObservation(from_station="49", target_station="64"),
+            SurveyObservation(from_station="64", target_station="65", close_to="49"),
+            SurveyObservation(from_station="65", target_station="84"),
+            SurveyObservation(from_station="84", target_station="85", close_to="BP"),
+        ]
+
+        blocks, block_ids = detect_blocks(observations)
+
+        self.assertEqual(block_ids[0], block_ids[1])
+        self.assertEqual(block_ids[1], block_ids[2])
+        self.assertNotEqual(block_ids[2], block_ids[3])
+        self.assertNotEqual(block_ids[3], block_ids[4])
+        self.assertEqual(block_ids[4], block_ids[5])
+        self.assertEqual(block_ids[6], block_ids[0])
+        self.assertEqual(block_ids[7], block_ids[0])
+
+        block_kind_by_id = {block.block_id: block.kind for block in blocks}
+        self.assertEqual(block_kind_by_id[block_ids[0]], BlockKind.AREA)
+        self.assertEqual(block_kind_by_id[block_ids[3]], BlockKind.BRANCH)
+        self.assertEqual(block_kind_by_id[block_ids[4]], BlockKind.AREA)
+
+    def test_detect_blocks_self_referential_connect_to_resumes_after_intervening_area(self):
+        # Same physical layout as the forward-reference test above, but the
+        # field crew re-used the label "48" itself for the resume point
+        # instead of introducing a new label "65" (connect_to="48" equals
+        # this row's own target, so it looks self-referential like the
+        # "keeps_main_line_continuation" test). The close_to at 64->65 in
+        # between is what proves this "48" later on is a genuine resumption
+        # of the original line, not a brand new branch — the result must be
+        # identical in shape to the forward-reference version.
+        observations = [
+            SurveyObservation(from_station="BP", target_station="1"),
+            SurveyObservation(from_station="1", target_station="47"),
+            SurveyObservation(from_station="47", target_station="48", connect_to="48"),
+            SurveyObservation(from_station="48", target_station="49"),
+            SurveyObservation(from_station="49", target_station="64"),
+            SurveyObservation(from_station="64", target_station="65", close_to="49"),
+            SurveyObservation(from_station="48", target_station="84"),
+            SurveyObservation(from_station="84", target_station="85", close_to="BP"),
+        ]
+
+        blocks, block_ids = detect_blocks(observations)
+
+        self.assertEqual(block_ids[0], block_ids[1])
+        self.assertEqual(block_ids[1], block_ids[2])
+        self.assertNotEqual(block_ids[2], block_ids[3])
+        self.assertNotEqual(block_ids[3], block_ids[4])
+        self.assertEqual(block_ids[4], block_ids[5])
+        self.assertEqual(block_ids[6], block_ids[0])
+        self.assertEqual(block_ids[7], block_ids[0])
+
+        block_kind_by_id = {block.block_id: block.kind for block in blocks}
+        self.assertEqual(block_kind_by_id[block_ids[0]], BlockKind.AREA)
+        self.assertEqual(block_kind_by_id[block_ids[3]], BlockKind.BRANCH)
+        self.assertEqual(block_kind_by_id[block_ids[4]], BlockKind.AREA)
+
+    def test_detect_blocks_splits_trailing_area_when_data_ends_mid_branch(self):
+        # A branch that departs from the main line (row "3->10") and never
+        # resumes it before the data ends. Its close_to on the very last row
+        # (14->15, closing back to 11) must still split the branch into a
+        # connecting line (3->10->11) and a trailing area (11..15) instead of
+        # being absorbed into one large block.
+        observations = [
+            SurveyObservation(from_station="1", target_station="2"),
+            SurveyObservation(from_station="2", target_station="3", connect_to="3"),
+            SurveyObservation(from_station="3", target_station="4"),
+            SurveyObservation(from_station="4", target_station="5", exclude_marker="開始"),
+            SurveyObservation(from_station="5", target_station="6"),
+            SurveyObservation(from_station="6", target_station="7", exclude_marker="終了"),
+            SurveyObservation(from_station="7", target_station="8"),
+            SurveyObservation(from_station="8", target_station="9"),
+            SurveyObservation(from_station="3", target_station="10", exclude_marker="単独"),
+            SurveyObservation(from_station="10", target_station="11"),
+            SurveyObservation(from_station="11", target_station="12"),
+            SurveyObservation(from_station="12", target_station="13"),
+            SurveyObservation(from_station="13", target_station="14"),
+            SurveyObservation(from_station="14", target_station="15", close_to="11"),
+        ]
+
+        blocks, block_ids = detect_blocks(observations)
+
+        self.assertEqual(block_ids[:8], [block_ids[0]] * 8)
+        self.assertEqual(block_ids[8], block_ids[9])
+        self.assertNotEqual(block_ids[9], block_ids[10])
+        self.assertEqual(block_ids[10:], [block_ids[10]] * 4)
+        block_kind_by_id = {block.block_id: block.kind for block in blocks}
+        self.assertEqual(block_kind_by_id[block_ids[8]], BlockKind.BRANCH)
+        self.assertEqual(block_kind_by_id[block_ids[10]], BlockKind.AREA)
+
+    def test_compute_traverse_known_coordinates_resolve_cross_block_closure(self):
+        units = UnitProfile(
+            distance_unit=DistanceUnit.METERS,
+            inclination_unit=InclinationUnit.DEGREES,
+        )
+        # Station "1" is only known because an earlier block computed it;
+        # this block never visits "1" itself except via close_to.
+        known_coordinates = {"1": Coordinate(0.0, 0.0)}
+        observations = [
+            SurveyObservation(
+                from_station="5",
+                target_station="6",
+                slope_distance=10.0,
+                inclination=0.0,
+                azimuth=90.0,
+                close_to="1",
+            ),
+        ]
+
+        with self.assertRaises(ValueError):
+            compute_traverse(
+                observations,
+                start_coordinate=Coordinate(20.0, 0.0),
+                units=units,
+                start_station="5",
+            )
+
+        computation = compute_traverse(
+            observations,
+            start_coordinate=Coordinate(20.0, 0.0),
+            units=units,
+            start_station="5",
+            known_coordinates=known_coordinates,
+        )
+        self.assertEqual(len(computation.closures), 1)
+        self.assertTrue(
+            math.isclose(computation.closures[0].reference_coordinate.x, 0.0, abs_tol=1e-9)
+        )
+
+    def test_close_to_records_error_without_replacing_target_coordinate(self):
+        units = UnitProfile(
+            distance_unit=DistanceUnit.METERS,
+            inclination_unit=InclinationUnit.DEGREES,
+        )
+        observations = [
+            SurveyObservation(
+                from_station="BP",
+                target_station="1",
+                slope_distance=10.0,
+                inclination=0.0,
+                azimuth=90.0,
+            ),
+            SurveyObservation(
+                from_station="1",
+                target_station="2",
+                slope_distance=10.0,
+                inclination=0.0,
+                azimuth=90.0,
+            ),
+            SurveyObservation(
+                from_station="2",
+                target_station="3",
+                slope_distance=10.0,
+                inclination=0.0,
+                azimuth=270.0,
+                close_to="1",
+            ),
+            SurveyObservation(
+                from_station="3",
+                target_station="4",
+                slope_distance=10.0,
+                inclination=0.0,
+                azimuth=90.0,
+            ),
+        ]
+
+        computation = compute_traverse(
+            observations,
+            start_coordinate=Coordinate(0.0, 0.0),
+            units=units,
+            start_station="BP",
+        )
+
+        self.assertEqual(len(computation.closures), 1)
+        self.assertTrue(
+            math.isclose(computation.closures[0].error_distance, 0.0, abs_tol=1e-9)
+        )
+        self.assertTrue(
+            math.isclose(computation.leg_results[2].target_coordinate.x, 10.0, rel_tol=1e-9)
+        )
 
 
 if __name__ == "__main__":

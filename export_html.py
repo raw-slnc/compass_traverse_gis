@@ -8,6 +8,7 @@ import html as html_module
 import math
 import os
 import tempfile
+from collections import OrderedDict
 from datetime import datetime
 
 from qgis.PyQt import QtCore, QtGui, QtWidgets
@@ -39,6 +40,10 @@ _CSS_PAGE_SIZE = {
 _MARGIN_MM = 12
 _HEADER_MM = 25
 _PDF_DPI = 300
+
+
+def _tr_export(message):
+    return QtCore.QCoreApplication.translate("ExportSettingsDialog", message)
 
 
 def _floor_ha_str(m2):
@@ -840,16 +845,14 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             block_entries=pc.get("block_entries", []),
         )
         area_entries, _line_entries, is_area_mode = _classify_block_entries(block_entries)
-        exclude_lines = bool(pc.get("exclude_connecting_lines", False))
+        main_line_entries, _excluded_line_entries = _build_line_notebook_entries(block_entries)
         sum_sd = sum(
             _entry_sum_sd(entry)
-            for entry in block_entries
-            if not _entry_is_excluded(entry, exclude_lines)
+            for entry in main_line_entries
         )
         sum_hd = sum(
             _entry_sum_hd(entry)
-            for entry in block_entries
-            if not _entry_is_excluded(entry, exclude_lines)
+            for entry in main_line_entries
         )
         area_total_m2 = sum(_entry_area_m2(entry) for entry in area_entries)
         area_total_ha = sum(math.floor(_entry_area_m2(e) / 10000.0 * 100) / 100 for e in area_entries)
@@ -1662,13 +1665,18 @@ def _draw_branch_lines(painter, block_entries, extent, map_rect):
     for entry in block_entries:
         if str(entry.get("block_kind", "")).strip().lower() != "branch":
             continue
-        comp = entry.get("computation")
-        if comp is None:
+        coords = list(entry.get("line_points") or [])
+        if not coords:
+            comp = entry.get("computation")
+            if comp is None:
+                continue
+            leg_results = entry.get("leg_results") or comp.leg_results
+            coords = [comp.start_coordinate] + [
+                (leg.corrected_target_coordinate or leg.target_coordinate)
+                for leg in leg_results
+            ]
+        if len(coords) < 2:
             continue
-        coords = [comp.start_coordinate] + [
-            (leg.corrected_target_coordinate or leg.target_coordinate)
-            for leg in comp.leg_results
-        ]
         for i in range(len(coords) - 1):
             ax, ay = to_px(coords[i].x, coords[i].y)
             bx, by = to_px(coords[i + 1].x, coords[i + 1].y)
@@ -1696,7 +1704,7 @@ def _draw_branch_legend(painter, block_entries, map_rect, mm_to_px):
     f.setPixelSize(fsz)
     margin = int(4 * mm_to_px)
     box_size = fsz
-    text = "接続線（Branch）として除外"
+    text = "除外区間"
 
     fm = QtGui.QFontMetrics(f)
     text_w = fm.horizontalAdvance(text)
@@ -1835,24 +1843,24 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                            block_entries=None, exclude_connecting_lines=False,
                            magnetic_declination=0.0):
     he = html_module.escape
+    tr = _tr_export
     block_entries = _normalized_block_entries(
         observations=observations,
         computation=computation,
         block_entries=block_entries,
     )
     if not block_entries:
-        return "<p>観測データなし</p>"
+        return f"<p>{he(tr('No observation data'))}</p>"
     area_entries, _line_entries, is_area_mode = _classify_block_entries(block_entries)
+    main_line_entries, excluded_line_entries = _build_line_notebook_entries(block_entries)
     area_entries = sorted(area_entries, key=lambda e: str(e.get("block_name") or e.get("block_id") or ""))
     sum_sd = sum(
         _entry_sum_sd(entry)
-        for entry in block_entries
-        if not _entry_is_excluded(entry, exclude_connecting_lines)
+        for entry in main_line_entries
     )
     sum_hd = sum(
         _entry_sum_hd(entry)
-        for entry in block_entries
-        if not _entry_is_excluded(entry, exclude_connecting_lines)
+        for entry in main_line_entries
     )
     area_total_m2 = sum(_entry_area_m2(entry) for entry in area_entries)
     area_total_ha = sum(math.floor(_entry_area_m2(e) / 10000.0 * 100) / 100 for e in area_entries)
@@ -1862,25 +1870,25 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
     ):
         return f"""<table style="margin-bottom:6px;font-size:11px;width:100%">
 <tr>
-  <th style="text-align:left;width:6em">事業名</th>
+  <th style="text-align:left;width:6em">{he(tr("Project Name"))}</th>
   <td colspan="3">{he(project_name)}</td>
-  <th style="width:8em">測定者</th>
+  <th style="width:8em">{he(tr("Surveyor"))}</th>
   <td colspan="3">{he(surveyor)}</td>
 </tr>
 <tr>
-  <th style="text-align:left">測量名</th>
+  <th style="text-align:left">{he(tr("Work Name"))}</th>
   <td colspan="3">{he(work_name)}</td>
-  <th>測定日時</th>
+  <th>{he(tr("Measurement Date"))}</th>
   <td colspan="3">{he(measurement_date)}</td>
 </tr>
 <tr>
-  <th style="text-align:left">事業年度</th>
+  <th style="text-align:left">{he(tr("Fiscal Year"))}</th>
   <td colspan="3">{he(fiscal_year)}</td>
   <th>{he(right_label_1)}</th>
   <td colspan="3" style="text-align:right">{he(right_value_1)}</td>
 </tr>
 <tr>
-  <th style="text-align:left">事業種別</th>
+  <th style="text-align:left">{he(tr("Operation Type"))}</th>
   <td colspan="3">{he(operation_type)}</td>
   <th>{he(right_label_2)}</th>
   <td colspan="3" style="text-align:right">{he(right_value_2)}</td>
@@ -1888,13 +1896,13 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
 </table>"""
 
     overview_html = _info_html(
-        "面積合計" if is_area_mode else "延長合計（斜距離）",
+        tr("Area Total") if is_area_mode else tr("Length Total (Slope Distance)"),
         (
             f"{area_total_ha:.2f} ha"
             if is_area_mode and area_total_m2
             else (_fmt(sum_sd) + " m" if sum_sd else "")
         ),
-        "" if is_area_mode else "延長合計（水平距離）",
+        "" if is_area_mode else tr("Length Total (Horizontal Distance)"),
         "" if is_area_mode else (_fmt(sum_hd) + " m" if sum_hd else ""),
     )
 
@@ -1905,9 +1913,9 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
         return (
             f"<h4 style=\"margin:10px 0 6px\">{he(str(block_name))}</h4>"
             + _info_html(
-                "面積合計",
+                tr("Area Total"),
                 _floor_ha_str(area_m2) if area_m2 else "",
-                "斜距離合計",
+                tr("Slope Distance Total"),
                 _fmt_d(slope_total) + " m" if slope_total else "",
             )
             + table_open
@@ -1915,14 +1923,14 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             + table_close
         )
 
-    def _rows_html(entry, *, add_subtotal):
+    def _rows_html(entry, *, add_subtotal, subtotal_include_excluded=False):
         block_name = entry.get("block_name") or entry.get("block_id") or ""
         leg_map = {}
         comp = entry.get("computation")
-        if comp is not None:
-            for leg in comp.leg_results:
+        leg_results = entry.get("leg_results") or (comp.leg_results if comp is not None else [])
+        if leg_results:
+            for leg in leg_results:
                 leg_map[(leg.from_station, leg.target_station)] = leg
-        excluded = _entry_is_excluded(entry, exclude_connecting_lines)
         rows_html = ""
         for obs in entry.get("observations", []):
             dz = _height_diff_from_obs(obs)
@@ -1930,8 +1938,10 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             dx = leg.delta_x if leg else None
             dy = leg.delta_y if leg else None
             note_parts = [str(obs.note or "").strip()]
-            if excluded:
-                note_parts.append("計算から除外")
+            row_excluded = _observation_is_excluded(obs)
+            if row_excluded:
+                note_parts.append(tr("Excluded from calculation"))
+            distance_style = "text-align:right;color:#c00000" if row_excluded else "text-align:right"
             if obs.azimuth is not None:
                 raw_az = (obs.azimuth - magnetic_declination) % 360.0
                 true_az_str = _fmt_d(obs.azimuth) if magnetic_declination != 0 else "-"
@@ -1945,8 +1955,8 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                 f"<td style='text-align:right'>{_fmt_d(raw_az)}</td>"
                 f"<td style='text-align:right'>{true_az_str}</td>"
                 f"<td style='text-align:right'>{_fmt_d(obs.inclination)}</td>"
-                f"<td style='text-align:right'>{_fmt_d(obs.slope_distance)}</td>"
-                f"<td style='text-align:right'>{_fmt_d(obs.horizontal_distance)}</td>"
+                f"<td style='{distance_style}'>{_fmt_d(obs.slope_distance)}</td>"
+                f"<td style='{distance_style}'>{_fmt_d(obs.horizontal_distance)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(dz)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(dx)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(dy)}</td>"
@@ -1956,14 +1966,18 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                 f"</tr>\n"
             )
         if add_subtotal:
-            subtotal_sd = "" if excluded else _fmt_d(_entry_sum_sd(entry))
-            subtotal_hd = "" if excluded else _fmt_d(_entry_sum_hd(entry))
+            subtotal_sd = _fmt_d(
+                _entry_sum_sd(entry, include_excluded_obs=subtotal_include_excluded)
+            )
+            subtotal_hd = _fmt_d(
+                _entry_sum_hd(entry, include_excluded_obs=subtotal_include_excluded)
+            )
             subtotal_note = str(block_name)
-            if excluded:
-                subtotal_note = f"{subtotal_note} / 計算から除外"
+            if subtotal_include_excluded:
+                subtotal_note = f"{subtotal_note} / {tr('Excluded from calculation')}"
             rows_html += (
                 f"<tr style='font-weight:bold;background:#f0f4f8;'>"
-                f"<td colspan='5'>延長計</td>"
+                f"<td colspan='5'>{he(tr('Length Total'))}</td>"
                 f"<td style='text-align:right'>{subtotal_sd}</td>"
                 f"<td style='text-align:right'>{subtotal_hd}</td>"
                 f"<td></td><td></td><td></td><td></td><td></td>"
@@ -1975,11 +1989,11 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
     table_open = """<table>
 <thead>
 <tr>
-  <th rowspan="2">視準点</th><th rowspan="2">測定点</th>
-  <th rowspan="2">方位角</th><th rowspan="2">真方位角<br>（偏差修正後）</th><th rowspan="2">高低角</th>
-  <th>斜距離</th><th>水平距離</th><th>高低差</th>
+  <th rowspan="2">""" + he(tr("From")) + """</th><th rowspan="2">""" + he(tr("To")) + """</th>
+  <th rowspan="2">""" + he(tr("Azimuth")) + """</th><th rowspan="2">""" + he(tr("True Azimuth")) + """<br>""" + he(tr("(after declination correction)")) + """</th><th rowspan="2">""" + he(tr("Inclination")) + """</th>
+  <th>""" + he(tr("Slope")) + """</th><th>""" + he(tr("Horizontal")) + """</th><th>""" + he(tr("Elevation Difference")) + """</th>
   <th>△X</th><th>△Y</th>
-  <th rowspan="2">接続先</th><th rowspan="2">閉合先</th><th rowspan="2">備考</th>
+  <th rowspan="2">""" + he(tr("Connect To")) + """</th><th rowspan="2">""" + he(tr("Close To")) + """</th><th rowspan="2">""" + he(tr("Notes")) + """</th>
 </tr>
 <tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>
 </thead>
@@ -1987,10 +2001,10 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
     table_close = "</tbody></table>"
 
     sections = []
-    intro_parts = ["<h2>測量野帳</h2>", overview_html]
+    intro_parts = [f"<h2>{he(tr('Survey Notebook'))}</h2>", overview_html]
     if area_entries:
-        intro_parts.append("<h3>面積測量野帳</h3>")
-        intro_parts.append(_area_summary_html(area_entries, heading="面積概要"))
+        intro_parts.append(f"<h3>{he(tr('Area Survey Notebook'))}</h3>")
+        intro_parts.append(_area_summary_html(area_entries, heading=tr("Area Summary")))
         intro_parts.append(_area_block_html(area_entries[0]))
         sections.append(f"<section class='notebook-intro'>{''.join(intro_parts)}</section>")
         for entry in area_entries[1:]:
@@ -1999,17 +2013,14 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             )
     else:
         sections.append(f"<section class='notebook-intro'>{''.join(intro_parts)}</section>")
-    line_target_entries = [entry for entry in block_entries if entry not in area_entries]
-    if line_target_entries:
+    if main_line_entries:
         sum_sd = sum(
             _entry_sum_sd(entry)
-            for entry in line_target_entries
-            if not _entry_is_excluded(entry, exclude_connecting_lines)
+            for entry in main_line_entries
         )
         sum_hd = sum(
             _entry_sum_hd(entry)
-            for entry in line_target_entries
-            if not _entry_is_excluded(entry, exclude_connecting_lines)
+            for entry in main_line_entries
         )
         info_html = _info_html(
             "延長合計（斜距離）",
@@ -2018,25 +2029,42 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             _fmt_d(sum_hd) + " m" if sum_hd else "",
         )
 
-        rows_html = ""
-        for entry in line_target_entries:
+        line_sections = []
+        first_main = True
+        for entry_type, entry in _iter_line_display_entries(main_line_entries, excluded_line_entries):
             block_name = entry.get("block_name") or entry.get("block_id") or ""
-            rows_html += (
-                f"<tr style='background:#eef3f8;font-weight:bold'>"
-                f"<td colspan='12'>{he(str(block_name))}</td></tr>\n"
+            if entry_type == "main":
+                if first_main:
+                    line_sections.append(
+                        f"""<section class='notebook-block notebook-page-break'><h3>{he(tr("Line Survey Notebook"))}</h3><h4>{he(str(block_name))}</h4>{info_html}
+{table_open}{_rows_html(entry, add_subtotal=True)}{table_close}</section>"""
+                    )
+                    first_main = False
+                else:
+                    line_sections.append(
+                        f"""<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>
+{table_open}{_rows_html(entry, add_subtotal=True)}{table_close}</section>"""
+                    )
+                continue
+            excluded_info_html = _info_html(
+                tr("Slope Distance Total"),
+                _fmt_d(_entry_sum_sd(entry, include_excluded_obs=True)) + " m",
+                tr("Horizontal Distance Total"),
+                _fmt_d(_entry_sum_hd(entry, include_excluded_obs=True)) + " m",
             )
-            rows_html += _rows_html(entry, add_subtotal=True)
-        sections.append(
-            f"""<section class='notebook-block notebook-page-break'><h3>延長野帳</h3>{info_html}
-{table_open}{rows_html}{table_close}</section>"""
-        )
+            line_sections.append(
+                f"""<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>{excluded_info_html}
+{table_open}{_rows_html(entry, add_subtotal=True, subtotal_include_excluded=True)}{table_close}</section>"""
+            )
+        sections.extend(line_sections)
 
-    return "".join(sections) if sections else "<p>観測データなし</p>"
+    return "".join(sections) if sections else f"<p>{he(tr('No observation data'))}</p>"
 
 
 def _section_area_calc_html(*, observations, computation, project_name,
                             work_name, note_text, paper_key, block_entries=None):
     he = html_module.escape
+    tr = _tr_export
     block_entries = _normalized_block_entries(
         observations=observations,
         computation=computation,
@@ -2044,10 +2072,10 @@ def _section_area_calc_html(*, observations, computation, project_name,
     )
     area_entries, _line_entries, _is_area_mode = _classify_block_entries(block_entries)
     if not area_entries:
-        return "<p>計算データなし（先に「計算実行」を行ってください）</p>"
+        return f"<p>{he(tr('No calculation data (run calculation first)'))}</p>"
     area_entries = sorted(area_entries, key=lambda e: str(e.get("block_name") or e.get("block_id") or ""))
     sections = []
-    intro_parts = ["<h3>面積計算簿（倍横距法）</h3>", _area_summary_html(area_entries, heading="面積概要")]
+    intro_parts = [f"<h3>{he(tr('Area Calculation Sheet (Double Meridian Distance)'))}</h3>", _area_summary_html(area_entries, heading=tr("Area Summary"))]
 
     def _calc_block_html(entry):
         observations = entry.get("observations", [])
@@ -2078,36 +2106,36 @@ def _section_area_calc_html(*, observations, computation, project_name,
 <h4 style="margin:10px 0 6px">{he(str(block_name))}</h4>
 <table style="margin-bottom:6px;font-size:11px;">
 <tr>
-  <th style="text-align:left;width:6em">事業名</th>
+  <th style="text-align:left;width:6em">{he(tr("Project Name"))}</th>
   <td colspan="3">{he(project_name)}</td>
-  <th>X累計</th><td style="text-align:right">{_fmt_d(sum_dy)}</td>
-  <th>測点数</th><td style="text-align:right">{len(computation.leg_results)} 箇所</td>
-  <th>x最大値</th><td style="text-align:right">{_fmt_d(max(ys))}</td>
+  <th>{he(tr("X Total"))}</th><td style="text-align:right">{_fmt_d(sum_dy)}</td>
+  <th>{he(tr("Station Count"))}</th><td style="text-align:right">{len(computation.leg_results)} {he(tr("points"))}</td>
+  <th>{he(tr("Max X"))}</th><td style="text-align:right">{_fmt_d(max(ys))}</td>
 </tr>
 <tr>
-  <th style="text-align:left">測量名</th>
+  <th style="text-align:left">{he(tr("Work Name"))}</th>
   <td colspan="3">{he(work_name)}</td>
-  <th>Y累計</th><td style="text-align:right">{_fmt_d(sum_dx)}</td>
-  <th>閉合差</th><td style="text-align:right">{_fmt_d(err_dist)}</td>
-  <th>x最小値</th><td style="text-align:right">{_fmt_d(min(ys))}</td>
+  <th>{he(tr("Y Total"))}</th><td style="text-align:right">{_fmt_d(sum_dx)}</td>
+  <th>{he(tr("Closure Error"))}</th><td style="text-align:right">{_fmt_d(err_dist)}</td>
+  <th>{he(tr("Min X"))}</th><td style="text-align:right">{_fmt_d(min(ys))}</td>
 </tr>
 <tr>
-  <th style="text-align:left">測定者</th><td colspan="3"></td>
-  <th>水距累計</th><td style="text-align:right">{_fmt_d(sum_hd)}</td>
-  <th>精度(/)</th><td style="text-align:right">{he(ratio_str)}</td>
-  <th>y最大値</th><td style="text-align:right">{_fmt_d(max(xs))}</td>
+  <th style="text-align:left">{he(tr("Surveyor"))}</th><td colspan="3"></td>
+  <th>{he(tr("Horizontal Total"))}</th><td style="text-align:right">{_fmt_d(sum_hd)}</td>
+  <th>{he(tr("Accuracy (/)"))}</th><td style="text-align:right">{he(ratio_str)}</td>
+  <th>{he(tr("Max Y"))}</th><td style="text-align:right">{_fmt_d(max(xs))}</td>
 </tr>
 <tr>
-  <th style="text-align:left">測定日時</th><td colspan="3"></td>
-  <th>高度累計</th><td style="text-align:right">{_fmt_d(totals.get("sum_dz", 0))}</td>
-  <th>精度(%)</th><td style="text-align:right">{he(ratio_pct)}</td>
-  <th>y最小値</th><td style="text-align:right">{_fmt_d(min(xs))}</td>
+  <th style="text-align:left">{he(tr("Measurement Date"))}</th><td colspan="3"></td>
+  <th>{he(tr("Elevation Total"))}</th><td style="text-align:right">{_fmt_d(totals.get("sum_dz", 0))}</td>
+  <th>{he(tr("Accuracy (%)"))}</th><td style="text-align:right">{he(ratio_pct)}</td>
+  <th>{he(tr("Min Y"))}</th><td style="text-align:right">{_fmt_d(min(xs))}</td>
 </tr>
 <tr>
-  <th style="text-align:left">備考</th>
+  <th style="text-align:left">{he(tr("Notes"))}</th>
   <td colspan="3">{he(note_text)}</td>
   <td colspan="2"></td>
-  <th>面積</th>
+  <th>{he(tr("Area"))}</th>
   <td style="text-align:right;font-weight:bold">{_floor_ha_str(area_m2)}</td>
   <td colspan="2"></td>
 </tr>
@@ -2133,7 +2161,7 @@ def _section_area_calc_html(*, observations, computation, project_name,
             )
         rows_html += (
             f"<tr style='font-weight:bold;background:#f0f4f8;'>"
-            f"<td colspan='2'>合計</td><td></td><td></td>"
+            f"<td colspan='2'>{he(tr('Total'))}</td><td></td><td></td>"
             f"<td style='text-align:right'>{_fmt_d(totals.get('sum_sd'))}</td>"
             f"<td style='text-align:right'>{_fmt_d(totals.get('sum_hd'))}</td>"
             f"<td style='text-align:right'>{_fmt_d(totals.get('sum_dz'))}</td>"
@@ -2141,7 +2169,7 @@ def _section_area_calc_html(*, observations, computation, project_name,
             f"<td style='text-align:right'>{_fmt_d(totals.get('sum_double_area'))}</td>"
             f"</tr>\n"
             f"<tr style='font-weight:bold;background:#fff3cd;'>"
-            f"<td colspan='12' style='text-align:right'>面積 = |Σ倍面積| / 2 =</td>"
+            f"<td colspan='12' style='text-align:right'>{he(tr('Area = |ΣDouble Area| / 2 ='))}</td>"
             f"<td style='text-align:right'>{area_m2:.4f} m²</td>"
             f"</tr>\n"
         )
@@ -2150,11 +2178,11 @@ def _section_area_calc_html(*, observations, computation, project_name,
 <table>
 <thead>
 <tr>
-  <th rowspan="2">視準点</th><th rowspan="2">測定点</th>
-  <th rowspan="2">真方位角<br>（偏差修正後）</th><th rowspan="2">高低角</th>
-  <th>斜距離</th><th>水平距離</th><th>高低差</th>
+  <th rowspan="2">{he(tr("From"))}</th><th rowspan="2">{he(tr("To"))}</th>
+  <th rowspan="2">{he(tr("True Azimuth"))}<br>{he(tr("(after declination correction)"))}</th><th rowspan="2">{he(tr("Inclination"))}</th>
+  <th>{he(tr("Slope"))}</th><th>{he(tr("Horizontal"))}</th><th>{he(tr("Elevation Difference"))}</th>
   <th>Y</th><th>X</th><th>Z</th>
-  <th rowspan="2">倍横距</th><th rowspan="2">緯距</th><th rowspan="2">倍面積</th>
+  <th rowspan="2">{he(tr("Double Meridian Distance"))}</th><th rowspan="2">{he(tr("Latitude"))}</th><th rowspan="2">{he(tr("Double Area"))}</th>
 </tr>
 <tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>
 </thead>
@@ -2179,6 +2207,7 @@ def _build_table_html(*, project_name, work_name, scale_text, paper_key,
                       magnetic_declination=0.0):
     """Full HTML with 測量野帳 + 面積計算簿 tabs for browser preview/print."""
     he = html_module.escape
+    tr = _tr_export
     page_css = _CSS_PAGE_SIZE.get(paper_key, "A4 landscape")
     block_entries = _normalized_block_entries(
         observations=observations,
@@ -2207,7 +2236,7 @@ def _build_table_html(*, project_name, work_name, scale_text, paper_key,
 
     return f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="utf-8">
-<title>{he(project_name)} – 計算書類</title>
+<title>{he(project_name)} – {he(tr("Calculation Documents"))}</title>
 <style>
 body{{font-family:'Yu Gothic UI','Meiryo',sans-serif;margin:0;background:#f3f6fa;}}
 header{{padding:10px 16px;border-bottom:1px solid #d6dbe1;background:#fff;}}
@@ -2234,11 +2263,11 @@ h3,h4{{break-after:avoid-page;page-break-after:avoid;}}
 </style></head><body>
 <header>
   <strong>{he(project_name)} / {he(work_name)}</strong>
-  <span style="margin-left:12px;color:#555;">縮尺 {he(scale_text)} / {he(paper_key)}</span>
+  <span style="margin-left:12px;color:#555;">{he(tr("Scale"))} {he(scale_text)} / {he(paper_key)}</span>
 </header>
 <nav class="tabs">
-  <button class="tab-btn" onclick="openTab('nb')">測量野帳</button>
-  {('<button class="tab-btn" onclick="openTab(\'calc\')">面積計算簿</button>' if area_entries else '')}
+  <button class="tab-btn" onclick="openTab('nb')">{he(tr("Survey Notebook"))}</button>
+  {(f"""<button class="tab-btn" onclick="openTab('calc')">{he(tr("Area Calculation Sheet"))}</button>""" if area_entries else '')}
 </nav>
 <div id="nb" class="tab-panel">{nb}</div>
 {(f'<div id="calc" class="tab-panel">{calc}</div>' if area_entries else '')}
@@ -2498,19 +2527,32 @@ def _entry_is_excluded(entry, exclude_connecting_lines):
     return bool(exclude_connecting_lines and str(entry.get("block_kind", "")).strip().lower() == "branch")
 
 
-def _entry_sum_sd(entry):
+def _observation_is_excluded(observation):
+    return bool(getattr(observation, "exclude_from_output", False))
+
+
+def _entry_sum_sd(entry, *, include_excluded_obs=False):
     return sum(
         (obs.slope_distance or 0.0)
         for obs in entry.get("observations", [])
         if obs.slope_distance is not None
+        and (include_excluded_obs or not _observation_is_excluded(obs))
     )
 
 
-def _entry_sum_hd(entry):
-    comp = entry.get("computation")
-    if comp is None:
-        return 0.0
-    return sum(leg.horizontal_distance for leg in comp.leg_results)
+def _entry_sum_hd(entry, *, include_excluded_obs=False):
+    leg_results = list(entry.get("leg_results") or [])
+    if not leg_results:
+        comp = entry.get("computation")
+        if comp is None:
+            return 0.0
+        leg_results = list(comp.leg_results)
+    total = 0.0
+    for obs, leg in zip(entry.get("observations", []), leg_results):
+        if _observation_is_excluded(obs) and not include_excluded_obs:
+            continue
+        total += leg.horizontal_distance
+    return total
 
 
 def _entry_area_m2(entry):
@@ -2518,6 +2560,96 @@ def _entry_area_m2(entry):
     if comp is None:
         return 0.0
     return comp.corrected_area() or 0.0
+
+
+def _is_area_entry(entry):
+    kind = str(entry.get("block_kind", "") or "").strip().lower()
+    comp = entry.get("computation")
+    return kind == "area" or (
+        comp is not None
+        and comp.latest_closure() is not None
+        and kind != "branch"
+    )
+
+
+def _base_line_block_id(entry):
+    block_id = str(entry.get("block_id") or "")
+    for marker in ("_route_", "_branch_"):
+        if marker in block_id:
+            return block_id.split(marker, 1)[0]
+    return block_id
+
+
+def _merge_line_entries(entries, *, block_id, block_name, display_role):
+    merged = {
+        "block_id": block_id,
+        "block_name": block_name,
+        "block_kind": "route",
+        "display_role": display_role,
+        "observations": [],
+        "computation": None,
+        "leg_results": [],
+        "line_points": [],
+    }
+    for entry in entries:
+        if merged["computation"] is None:
+            merged["computation"] = entry.get("computation")
+        merged["observations"].extend(list(entry.get("observations") or []))
+        merged["leg_results"].extend(list(entry.get("leg_results") or []))
+        points = list(entry.get("line_points") or [])
+        if points:
+            merged["line_points"].extend(points)
+    return merged
+
+
+def _build_line_notebook_entries(block_entries):
+    grouped_entries = OrderedDict()
+    for entry in block_entries:
+        if _is_area_entry(entry):
+            continue
+        grouped_entries.setdefault(_base_line_block_id(entry), []).append(entry)
+
+    main_entries = []
+    excluded_entries = []
+    for line_index, (base_id, entries) in enumerate(grouped_entries.items()):
+        line_name = f"Line{chr(ord('A') + line_index)}"
+        main_entries.append(
+            _merge_line_entries(
+                entries,
+                block_id=base_id,
+                block_name=line_name,
+                display_role="main_line",
+            )
+        )
+        excluded_index = 1
+        for entry in entries:
+            obs_list = list(entry.get("observations") or [])
+            if not any(_observation_is_excluded(obs) for obs in obs_list):
+                continue
+            excluded_entries.append(
+                _merge_line_entries(
+                    [entry],
+                    block_id=f"{base_id}_excluded_{excluded_index}",
+                    block_name=f"{line_name} Excluded {excluded_index}",
+                    display_role="excluded_segment",
+                )
+            )
+            excluded_index += 1
+    return main_entries, excluded_entries
+
+
+def _iter_line_display_entries(main_entries, excluded_entries):
+    excluded_by_prefix = OrderedDict()
+    for entry in excluded_entries:
+        block_name = str(entry.get("block_name") or "")
+        prefix = block_name.split(" Excluded", 1)[0]
+        excluded_by_prefix.setdefault(prefix, []).append(entry)
+
+    for main_entry in main_entries:
+        yield ("main", main_entry)
+        prefix = str(main_entry.get("block_name") or "")
+        for excluded_entry in excluded_by_prefix.get(prefix, []):
+            yield ("excluded", excluded_entry)
 
 
 def _area_summary_html(area_entries, *, heading="面積一覧"):
@@ -2572,6 +2704,7 @@ def _build_notebook_export_summary_rows(
 ):
     tr_label = tr_label or (lambda text: text)
     area_entries, line_entries, _is_area_mode = _classify_block_entries(block_entries)
+    main_line_entries, excluded_line_entries = _build_line_notebook_entries(block_entries)
     rows = []
     area_total_m2 = 0.0
     area_total_ha = 0.0
@@ -2597,23 +2730,26 @@ def _build_notebook_export_summary_rows(
 
     line_total_sd = 0.0
     line_total_hd = 0.0
-    sorted_line_entries = sorted(
-        line_entries,
-        key=lambda e: str(e.get("block_name") or e.get("block_id") or ""),
-    )
-    for entry in sorted_line_entries:
-        if _entry_is_excluded(entry, exclude_connecting_lines):
+    for entry_type, entry in _iter_line_display_entries(main_line_entries, excluded_line_entries):
+        if entry_type == "main":
+            sd = _entry_sum_sd(entry)
+            hd = _entry_sum_hd(entry)
+            line_total_sd += sd
+            line_total_hd += hd
+            rows.append((
+                tr_label("Length"),
+                str(entry.get("block_name") or entry.get("block_id") or ""),
+                f"{tr_label('Slope')} {_fmt_d(sd)} m / {tr_label('Horizontal')} {_fmt_d(hd)} m",
+            ))
             continue
-        sd = _entry_sum_sd(entry)
-        hd = _entry_sum_hd(entry)
-        line_total_sd += sd
-        line_total_hd += hd
+        sd = _entry_sum_sd(entry, include_excluded_obs=True)
+        hd = _entry_sum_hd(entry, include_excluded_obs=True)
         rows.append((
             tr_label("Length"),
             str(entry.get("block_name") or entry.get("block_id") or ""),
-            f"{tr_label('Slope')} {_fmt_d(sd)} m / {tr_label('Horizontal')} {_fmt_d(hd)} m",
+            f"{tr_label('Slope')} {_fmt_d(sd)} m / {tr_label('Horizontal')} {_fmt_d(hd)} m / {tr_label('Excluded from calculation')}",
         ))
-    if line_entries:
+    if main_line_entries:
         rows.append((
             tr_label("Length"),
             tr_label("Total"),
@@ -2631,16 +2767,19 @@ def _build_notebook_preview_sections(
 ):
     tr_label = tr_label or (lambda text: text)
     sections = []
+    area_entries, _line_entries, _is_area_mode = _classify_block_entries(block_entries)
+    main_line_entries, excluded_line_entries = _build_line_notebook_entries(block_entries)
     sorted_entries = sorted(
-        block_entries,
+        area_entries,
         key=lambda e: str(e.get("block_name") or e.get("block_id") or ""),
     )
     for entry in sorted_entries:
         obs_list = entry.get("observations", [])
         comp = entry.get("computation")
         leg_map = {}
-        if comp:
-            for leg in comp.leg_results:
+        leg_results = entry.get("leg_results") or (comp.leg_results if comp else [])
+        if leg_results:
+            for leg in leg_results:
                 leg_map[(leg.from_station, leg.target_station)] = leg
         name = str(entry.get("block_name") or entry.get("block_id") or "")
         kind = str(entry.get("block_kind", "") or "").strip().lower()
@@ -2664,13 +2803,13 @@ def _build_notebook_preview_sections(
             summary_rows.append(
                 (
                     tr_label("Slope Distance Total"),
-                    "" if excluded else f"{_fmt_d(_entry_sum_sd(entry))} m",
+                    f"{_fmt_d(_entry_sum_sd(entry, include_excluded_obs=True))} m",
                 )
             )
             summary_rows.append(
                 (
                     tr_label("Horizontal Distance Total"),
-                    "" if excluded else f"{_fmt_d(_entry_sum_hd(entry))} m",
+                    f"{_fmt_d(_entry_sum_hd(entry, include_excluded_obs=True))} m",
                 )
             )
 
@@ -2679,8 +2818,11 @@ def _build_notebook_preview_sections(
             leg = leg_map.get((obs.from_station, obs.target_station))
             dz = _height_diff_from_obs(obs)
             note_parts = [str(obs.note or "").strip()]
+            row_excluded = _observation_is_excluded(obs)
             if excluded:
                 note_parts.append(tr_label("Excluded from calculation"))
+            elif row_excluded:
+                note_parts.append(tr_label("Excluded from output"))
             if obs.azimuth is not None:
                 raw_az = (obs.azimuth - magnetic_declination) % 360.0
                 true_az_str = _fmt(obs.azimuth) if magnetic_declination != 0 else "-"
@@ -2708,8 +2850,8 @@ def _build_notebook_preview_sections(
                 subtotal_note = f"{subtotal_note} / {tr_label('Excluded from calculation')}"
             rows.append([
                 tr_label("Length Total"), "", "", "", "",
-                "" if excluded else _fmt(_entry_sum_sd(entry)),
-                "" if excluded else _fmt(_entry_sum_hd(entry)),
+                _fmt(_entry_sum_sd(entry, include_excluded_obs=True)),
+                _fmt(_entry_sum_hd(entry, include_excluded_obs=True)),
                 "", "", "", "", "", subtotal_note,
             ])
 
@@ -2719,6 +2861,75 @@ def _build_notebook_preview_sections(
             "summary_rows": summary_rows,
             "rows": rows,
         })
+
+    def _append_line_section(entry, *, include_excluded_totals):
+        obs_list = entry.get("observations", [])
+        comp = entry.get("computation")
+        leg_map = {}
+        leg_results = entry.get("leg_results") or (comp.leg_results if comp else [])
+        if leg_results:
+            for leg in leg_results:
+                leg_map[(leg.from_station, leg.target_station)] = leg
+        name = str(entry.get("block_name") or entry.get("block_id") or "")
+        summary_rows = [(tr_label("Category"), name)]
+        if include_excluded_totals:
+            summary_rows.append((tr_label("Handling"), tr_label("Excluded from calculation")))
+        summary_rows.append(
+            (
+                tr_label("Slope Distance Total"),
+                f"{_fmt_d(_entry_sum_sd(entry, include_excluded_obs=include_excluded_totals))} m",
+            )
+        )
+        summary_rows.append(
+            (
+                tr_label("Horizontal Distance Total"),
+                f"{_fmt_d(_entry_sum_hd(entry, include_excluded_obs=include_excluded_totals))} m",
+            )
+        )
+        rows = []
+        for obs in obs_list:
+            leg = leg_map.get((obs.from_station, obs.target_station))
+            dz = _height_diff_from_obs(obs)
+            note_parts = [str(obs.note or "").strip()]
+            if _observation_is_excluded(obs):
+                note_parts.append(tr_label("Excluded from calculation"))
+            if obs.azimuth is not None:
+                raw_az = (obs.azimuth - magnetic_declination) % 360.0
+                true_az_str = _fmt(obs.azimuth) if magnetic_declination != 0 else "-"
+            else:
+                raw_az = None
+                true_az_str = "-"
+            rows.append([
+                obs.from_station, obs.target_station,
+                _fmt(raw_az), true_az_str,
+                _fmt(obs.inclination),
+                _fmt(obs.slope_distance), _fmt(obs.horizontal_distance),
+                _fmt(dz),
+                _fmt(leg.delta_x if leg else None),
+                _fmt(leg.delta_y if leg else None),
+                obs.connect_to or "", obs.close_to or "",
+                " / ".join(part for part in note_parts if part),
+            ])
+        subtotal_note = name
+        if include_excluded_totals:
+            subtotal_note = f"{subtotal_note} / {tr_label('Excluded from calculation')}"
+        rows.append([
+            tr_label("Length Total"), "", "", "", "",
+            _fmt(_entry_sum_sd(entry, include_excluded_obs=include_excluded_totals)),
+            _fmt(_entry_sum_hd(entry, include_excluded_obs=include_excluded_totals)),
+            "", "", "", "", "", subtotal_note,
+        ])
+        sections.append({
+            "key": entry.get("block_id") or name,
+            "label": name,
+            "summary_rows": summary_rows,
+            "rows": rows,
+        })
+
+    for entry in main_line_entries:
+        _append_line_section(entry, include_excluded_totals=False)
+    for entry in excluded_line_entries:
+        _append_line_section(entry, include_excluded_totals=True)
     return sections
 
 

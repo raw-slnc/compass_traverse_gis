@@ -20,6 +20,7 @@ DEFAULT_NOTEBOOK_COLUMNS = (
     "target_station",
     "connect_to",
     "close_to",
+    "exclude_marker",
     "slope_distance",
     "inclination",
     "azimuth",
@@ -211,6 +212,7 @@ class SurveyObservation:
     target_station: str
     connect_to: str = ""
     close_to: str = ""
+    exclude_marker: str = ""
     slope_distance: float | None = None
     inclination: float | None = None
     azimuth: float | None = None
@@ -219,6 +221,7 @@ class SurveyObservation:
     longitude_dms: str = ""
     block_id: str = ""
     row_kind: str = ""
+    exclude_from_output: bool = False
     note: str = ""
     source_line: int | None = None
 
@@ -631,6 +634,8 @@ def detect_blocks(
 
     junction_pending: bool = False
     junction_station_key: str | None = None
+    junction_is_forward_reference: bool = False
+    junction_declared_at_row: int | None = None
     suspended_block_rows: list[int] | None = None
     suspended_block_seq: int | None = None
     suspended_block_is_branch: bool = False
@@ -710,14 +715,17 @@ def detect_blocks(
         Modifies nonlocal block_seq_counter via the outer scope.
         """
         nonlocal block_seq_counter
-        if post_closure_flag and i > 0 and current_block_rows:
-            prev_close = normalize_station_label(
-                observations[i - 1].close_to or "")
-            if prev_close and prev_close != junction_station_key:
+        if current_block_rows:
+            # The most recently appended row is always the one that (if any)
+            # just closed — true whether this is called mid-loop (right after
+            # that row) or once at the very end of the data.
+            last_close = normalize_station_label(
+                observations[current_block_rows[-1]].close_to or "")
+            if last_close and last_close != junction_station_key:
                 split_at = next(
                     (k for k, r in enumerate(current_block_rows)
                      if normalize_station_label(
-                         observations[r].from_station) == prev_close),
+                         observations[r].from_station) == last_close),
                     None)
                 if split_at is not None and split_at > 0:
                     # Connecting lines → BRANCH (force_branch=True)
@@ -739,16 +747,82 @@ def detect_blocks(
         if i == 0:
             start_new = True
 
-        elif junction_pending:
-            # Row immediately after a connect_to row → start branch sub-block.
+        elif junction_pending and junction_is_forward_reference:
+            # connect_to named a different, not-yet-reached station: the
+            # current line ends here unconditionally (rule 2). It is resumed
+            # later, whenever a row's from_station actually reaches that
+            # station (handled by the suspended_block_rows branch below).
             suspended_block_rows = list(current_block_rows)
             suspended_block_seq = current_block_seq
             suspended_block_is_branch = current_block_is_branch
             current_block_rows = []
             current_block_seq = block_seq_counter
             block_seq_counter += 1
-            current_block_is_branch = True  # junction-started sub-blocks are BRANCH by default
+            current_block_is_branch = True
             junction_pending = False
+
+        elif junction_pending:
+            prev_target_key = normalize_station_label(
+                observations[i - 1].target_station
+            )
+            from_key = normalize_station_label(obs.from_station)
+            continues_current_line = (
+                from_key == prev_target_key
+                and overrides[i] != "branch"
+            )
+            starts_from_junction = (
+                junction_station_key is not None
+                and from_key == junction_station_key
+            )
+            if starts_from_junction and not continues_current_line:
+                # A self-referential connect_to only means something once the
+                # station is actually revisited by a real departure. Whether
+                # that revisit is a brand new branch (nothing of note happened
+                # since the declaration) or a resumption of the original line
+                # (a whole area was surveyed as a detour in between, evidenced
+                # by a close_to row) is decided by what happened in between —
+                # not by the station label itself, which the detour re-uses.
+                declare_pos = (
+                    current_block_rows.index(junction_declared_at_row)
+                    if junction_declared_at_row in current_block_rows
+                    else None
+                )
+                detour_rows = (
+                    current_block_rows[declare_pos + 1:]
+                    if declare_pos is not None else []
+                )
+                has_intervening_closure = any(
+                    observations[r].close_to for r in detour_rows
+                )
+                if declare_pos is not None and has_intervening_closure:
+                    prefix_rows = current_block_rows[:declare_pos + 1]
+                    saved_seq, saved_branch = current_block_seq, current_block_is_branch
+                    current_block_rows = detour_rows
+                    current_block_seq = block_seq_counter
+                    block_seq_counter += 1
+                    current_block_is_branch = True
+                    _split_or_commit_branch()
+                    current_block_rows = prefix_rows
+                    current_block_seq, current_block_is_branch = saved_seq, saved_branch
+                else:
+                    # Start a deferred branch: nothing notable happened since
+                    # the declaration, so treat this departure as a brand new
+                    # branch (rather than a resumption).
+                    suspended_block_rows = list(current_block_rows)
+                    suspended_block_seq = current_block_seq
+                    suspended_block_is_branch = current_block_is_branch
+                    current_block_rows = []
+                    current_block_seq = block_seq_counter
+                    block_seq_counter += 1
+                    current_block_is_branch = True
+            elif post_closure_flag and overrides[i] != "route_override":
+                # The junction is still unresolved (it may take many more rows
+                # before the traverse departs from the declared station — see
+                # rule 3), but a closure on the previous row still needs to
+                # start a fresh block here. junction_pending stays True so a
+                # later departure from the junction station is still honored.
+                start_new = True
+                is_post_closure_start = True
 
         elif suspended_block_rows is not None:
             from_key = normalize_station_label(obs.from_station)
@@ -792,10 +866,26 @@ def detect_blocks(
         if obs.connect_to and not junction_pending and suspended_block_rows is None:
             junction_station_key = normalize_station_label(obs.connect_to)
             junction_pending = True
+            # A row can declare connect_to pointing at its own target station
+            # (an annotation on a point the line already passes through) or at
+            # a different, not-yet-reached station (a real fork: the point
+            # being surveyed now is the same physical station as one that
+            # will be surveyed later under a different label). Only the
+            # latter should suspend the line immediately.
+            junction_is_forward_reference = (
+                junction_station_key != normalize_station_label(obs.target_station)
+            )
+            junction_declared_at_row = i
 
         post_closure_flag = bool(obs.close_to)
 
-    _commit_block(current_block_rows, current_block_seq, current_block_is_branch)
+    if suspended_block_rows is not None:
+        # The data ended mid-detour, before any row resumed the suspended
+        # line or triggered the intermediate-closure check — still split off
+        # a trailing area if the detour's own last row closed a loop.
+        _split_or_commit_branch()
+    else:
+        _commit_block(current_block_rows, current_block_seq, current_block_is_branch)
 
     if suspended_block_rows:
         _commit_block(suspended_block_rows, suspended_block_seq,
@@ -869,8 +959,15 @@ def compute_traverse(
     start_coordinate: Coordinate,
     units: UnitProfile | None = None,
     start_station: str | None = None,
+    known_coordinates: dict[str, Coordinate] | None = None,
 ) -> TraverseComputation:
-    """Expand a simple ordered traverse from a known start coordinate."""
+    """Expand a simple ordered traverse from a known start coordinate.
+
+    known_coordinates optionally seeds additional stations (e.g. from
+    previously computed blocks) so close_to/from_station lookups can
+    resolve references outside this observation list, such as a later
+    block closing back to a station established in an earlier block.
+    """
 
     observation_list = list(observations)
     if not observation_list:
@@ -883,7 +980,8 @@ def compute_traverse(
     if first_from != normalized_start:
         raise ValueError("start_station must match the first observation from_station.")
 
-    station_coordinates: dict[str, Coordinate] = {normalized_start: start_coordinate}
+    station_coordinates: dict[str, Coordinate] = dict(known_coordinates or {})
+    station_coordinates[normalized_start] = start_coordinate
     leg_results: list[TraverseLegResult] = []
     closures: list[TraverseClosure] = []
 

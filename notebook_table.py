@@ -186,6 +186,11 @@ class GeoPointInputDialog(QtWidgets.QDialog):
             QtWidgets.QDialogButtonBox.StandardButton.Ok
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
+        self.clearButton = button_box.addButton(
+            _tr("Clear Location"),
+            QtWidgets.QDialogButtonBox.ButtonRole.ActionRole,
+        )
+        self.clearButton.clicked.connect(self._clear_and_accept)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box, 4, 0, 1, 7)
@@ -280,6 +285,18 @@ class GeoPointInputDialog(QtWidgets.QDialog):
         self._canvas_point_tool = None
         self._previous_map_tool = None
 
+    def _clear_and_accept(self):
+        for widget in (
+            self.latitudeDegreeEdit,
+            self.latitudeMinuteEdit,
+            self.latitudeSecondEdit,
+            self.longitudeDegreeEdit,
+            self.longitudeMinuteEdit,
+            self.longitudeSecondEdit,
+        ):
+            widget.clear()
+        self.accept()
+
     def done(self, result):
         self._stop_canvas_pick()
         super().done(result)
@@ -311,8 +328,10 @@ class NotebookTableDelegate(QtWidgets.QStyledItemDelegate):
         self._table_widget = table_widget
         self._base_even = QtGui.QColor("#ffffff")
         self._base_odd = QtGui.QColor("#f5f6f7")
-        self._geo_even = QtGui.QColor("#e7eef2")
-        self._geo_odd = QtGui.QColor("#dde7ec")
+        self._geo_optional_even = QtGui.QColor("#eef6ef")
+        self._geo_optional_odd = QtGui.QColor("#e7f0e8")
+        self._geo_even = QtGui.QColor("#dcefdc")
+        self._geo_odd = QtGui.QColor("#d1e7d2")
         self._calc_even = QtGui.QColor("#f1e1e1")
         self._calc_odd = QtGui.QColor("#ead5d5")
 
@@ -324,7 +343,16 @@ class NotebookTableDelegate(QtWidgets.QStyledItemDelegate):
             if index.column() in self._table_widget.calc_columns():
                 background = self._calc_even if index.row() % 2 == 0 else self._calc_odd
             elif index.column() in self._table_widget.geo_columns():
-                background = self._geo_even if index.row() % 2 == 0 else self._geo_odd
+                if self._table_widget.is_geo_required_row(index.row()):
+                    background = self._geo_even if index.row() % 2 == 0 else self._geo_odd
+                elif self._table_widget.is_geo_optional_row(index.row()):
+                    background = (
+                        self._geo_optional_even
+                        if index.row() % 2 == 0
+                        else self._geo_optional_odd
+                    )
+                else:
+                    background = self._base_even if index.row() % 2 == 0 else self._base_odd
             else:
                 background = self._base_even if index.row() % 2 == 0 else self._base_odd
             painter.save()
@@ -343,6 +371,8 @@ class NotebookTableWidget(QtWidgets.QTableWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._geo_columns = set()
+        self._geo_required_rows = set()
+        self._geo_optional_rows = set()
         self._calc_columns = set()
         self._geo_values = {}
         self._map_canvas = None
@@ -403,6 +433,15 @@ class NotebookTableWidget(QtWidgets.QTableWidget):
     def set_geo_columns(self, columns):
         self._geo_columns = set(columns)
 
+    def set_geo_hint_rows(self, required_rows, optional_rows):
+        self._geo_required_rows = {int(row) for row in required_rows if int(row) >= 0}
+        self._geo_optional_rows = {
+            int(row)
+            for row in optional_rows
+            if int(row) >= 0 and int(row) not in self._geo_required_rows
+        }
+        self.viewport().update()
+
     def set_map_canvas(self, map_canvas):
         self._map_canvas = map_canvas
 
@@ -411,6 +450,12 @@ class NotebookTableWidget(QtWidgets.QTableWidget):
 
     def geo_columns(self):
         return self._geo_columns
+
+    def is_geo_required_row(self, row_index):
+        return row_index in self._geo_required_rows
+
+    def is_geo_optional_row(self, row_index):
+        return row_index in self._geo_optional_rows
 
     def set_calc_columns(self, columns):
         self._calc_columns = set(columns)

@@ -38,15 +38,18 @@ from qgis.core import (
     QgsFillSymbol,
     QgsField,
     QgsGeometry,
-
     QgsLineSymbol,
     QgsMarkerSymbol,
+    QgsPalLayerSettings,
     QgsPointXY,
     QgsProject,
     QgsRectangle,
     QgsRuleBasedRenderer,
+    QgsTextBufferSettings,
+    QgsTextFormat,
     QgsVectorFileWriter,
     QgsVectorLayer,
+    QgsVectorLayerSimpleLabeling,
 )
 
 from .notebook_import import (
@@ -139,6 +142,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._current_dirty = True
         self._row_kinds = []       # per-table-row user override: "" | "branch" | "route_override"
         self._auto_row_kinds = []  # per-table-row auto-detected kind (read-only, from detect_blocks)
+        self._excluded_output_rows: set[int] = set()
+        self._invalid_exclusion_marker_rows: set[int] = set()
         self._detected_blocks = {}     # block_id → SurveyBlock (rebuilt each calculation)
         self._block_manual_names = {}  # block_id → manual name override (persisted)
         self._current_summary_mode = "area"
@@ -331,6 +336,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.tr("To"),
             self.tr("Connect To"),
             self.tr("Close To"),
+            self.tr("Excl. Seg."),
             "SD",
             "INC",
             "AZ",
@@ -592,19 +598,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             )
             return
 
-        block_entries = []
-        for blk_obs, blk_comp in block_computations:
-            blk_id = blk_obs[0].block_id if blk_obs else ""
-            blk = self._detected_blocks.get(blk_id or "")
-            block_entries.append(
-                {
-                    "block_id": blk_id or "blk_0",
-                    "block_name": self._block_display_name(blk_id if blk_obs else ""),
-                    "block_kind": (blk.kind.value if blk else ("area" if blk_comp.latest_closure() else "route")),
-                    "observations": blk_obs,
-                    "computation": blk_comp,
-                }
-            )
+        block_entries = self._build_output_block_entries(block_computations)
 
         # Ensure QGIS layers exist for canvas preview (cleared after QGIS restart etc.)
         if not self._preview_layer_ids:
@@ -875,6 +869,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             or self._updating_station_references
         ):
             return
+        if item.row() == self.observationTable.rowCount() - 1:
+            # Keep a spare blank row available past the last one, matching
+            # the row growth pasting already gets via ensure_size_for_range.
+            self.observationTable.setRowCount(self.observationTable.rowCount() + 1)
         if item.column() in (
             DEFAULT_NOTEBOOK_COLUMNS.index("delta_x"),
             DEFAULT_NOTEBOOK_COLUMNS.index("delta_y"),
@@ -886,6 +884,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             DEFAULT_NOTEBOOK_COLUMNS.index("connect_to"),
             DEFAULT_NOTEBOOK_COLUMNS.index("close_to"),
         )
+        exclusion_column_changed = item.column() == DEFAULT_NOTEBOOK_COLUMNS.index("exclude_marker")
         if item.column() == DEFAULT_NOTEBOOK_COLUMNS.index("from_station"):
             self._sync_station_reference_labels(item.row(), item.text())
         elif item.column() in (
@@ -895,6 +894,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._sync_station_reference_target_for_cell(item.row(), item.column())
         if needs_block_redetect:
             self._refresh_auto_row_kinds()
+        if exclusion_column_changed:
+            self._excluded_output_rows, self._invalid_exclusion_marker_rows = (
+                self._compute_excluded_output_rows(self._table_snapshot())
+            )
+            self._apply_row_kind_colors()
         if item.column() == DEFAULT_NOTEBOOK_COLUMNS.index("from_station"):
             self._acknowledged_mismatch_source_lines.discard(item.row() + 1)
             self._refresh_mismatch_state()
@@ -902,6 +906,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._acknowledged_mismatch_source_lines.discard(item.row() + 2)
             self._refresh_mismatch_state()
         self._handle_state_changed()
+        if exclusion_column_changed and self._preview_layer_ids:
+            self._run_calculation_preview()
         self._normalize_geo_assignments()
 
     def _sync_station_reference_labels(self, target_row, new_station_name):
@@ -1079,6 +1085,102 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return ""
         return item.text().strip()
 
+    def _normalize_exclusion_marker(self, text, marker_type):
+        value = str(text or "").strip().lower()
+        if not value:
+            return ""
+        start_text = str(self.tr("Start")).strip().lower()
+        end_text = str(self.tr("End")).strip().lower()
+        single_text = str(self.tr("Single")).strip().lower()
+        start_tokens = {
+            "s", "start", start_text, "始", "開始", "除外開始点",
+            "single", single_text, "start_end", "both", "単独", "始終", "開始終点", "除外開始点・終点",
+        }
+        end_tokens = {
+            "e", "end", end_text, "終", "終了", "除外終点",
+            "single", single_text, "start_end", "both", "単独", "始終", "開始終点", "除外開始点・終点",
+        }
+        if marker_type == "start" and value in start_tokens:
+            return "start"
+        if marker_type == "end" and value in end_tokens:
+            return "end"
+        return ""
+
+    def _exclusion_marker_display_text(self, has_start, has_end):
+        if has_start and has_end:
+            return self.tr("Single")
+        if has_start:
+            return self.tr("Start")
+        if has_end:
+            return self.tr("End")
+        return ""
+
+    def _retranslate_exclusion_marker_cells(self):
+        marker_col = DEFAULT_NOTEBOOK_COLUMNS.index("exclude_marker")
+        self.observationTable.blockSignals(True)
+        try:
+            for row_index in range(self.observationTable.rowCount()):
+                marker_text = self._table_cell_text(row_index, marker_col)
+                has_start = bool(self._normalize_exclusion_marker(marker_text, "start"))
+                has_end = bool(self._normalize_exclusion_marker(marker_text, "end"))
+                normalized_text = self._exclusion_marker_display_text(has_start, has_end)
+                self._set_table_cell_text(row_index, marker_col, normalized_text)
+        finally:
+            self.observationTable.blockSignals(False)
+
+    def _compute_excluded_output_rows(self, rows):
+        marker_col = DEFAULT_NOTEBOOK_COLUMNS.index("exclude_marker")
+        excluded_rows = set()
+        invalid_rows = set()
+        active_start = None
+
+        for row_index, row_values in enumerate(rows):
+            marker_text = row_values[marker_col] if marker_col < len(row_values) else ""
+            start_marker = self._normalize_exclusion_marker(marker_text, "start")
+            end_marker = self._normalize_exclusion_marker(marker_text, "end")
+
+            if start_marker and end_marker:
+                excluded_rows.update(range(row_index, row_index + 1))
+                active_start = None
+                continue
+
+            if start_marker:
+                if active_start is not None:
+                    invalid_rows.add(active_start)
+                    invalid_rows.add(row_index)
+                active_start = row_index
+
+            if end_marker:
+                if active_start is None:
+                    invalid_rows.add(row_index)
+                else:
+                    excluded_rows.update(range(active_start, row_index + 1))
+                    active_start = None
+
+        if active_start is not None:
+            invalid_rows.add(active_start)
+
+        return excluded_rows, invalid_rows
+
+    def _set_exclusion_marker_state(self, row_index, has_start, has_end):
+        self.observationTable.blockSignals(True)
+        try:
+            self._set_table_cell_text(
+                row_index,
+                DEFAULT_NOTEBOOK_COLUMNS.index("exclude_marker"),
+                self._exclusion_marker_display_text(has_start, has_end),
+            )
+        finally:
+            self.observationTable.blockSignals(False)
+        self._excluded_output_rows, self._invalid_exclusion_marker_rows = (
+            self._compute_excluded_output_rows(self._table_snapshot())
+        )
+        self._apply_row_kind_colors()
+        if self._preview_layer_ids:
+            self._run_calculation_preview()
+        else:
+            self._save_current_project_state()
+
     def _run_calculation_preview(self):
         observations, notes = self._collect_observations_from_table()
 
@@ -1105,12 +1207,14 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._rebuild_summary_table("area")
         self._set_summary_by_key("obs_count", str(len(observations)))
         self._set_summary_by_key("start_coord", self._start_coordinate_display_text())
-        self._set_summary_by_key("notes", " / ".join(notes) if notes else "")
+        self._set_summary_by_key("notes", self.tr(" / ").join(notes) if notes else "")
 
         if not observations:
             self._clear_preview_layers()
             self.notebookHintLabel.setText(
-                "計算対象の行がありません。測量点・目標点・距離・方位角を入力してください。"
+                self.tr(
+                    "There are no rows to calculate. Enter From, To, distance, and azimuth values."
+                )
             )
             return
 
@@ -1141,7 +1245,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if not block_computations:
             self._clear_preview_layers()
-            self._set_summary_by_key("notes", "計算可能なブロックがありません。")
+            self._set_summary_by_key("notes", self.tr("There are no calculable blocks."))
             return
 
         for blk_obs, comp in block_computations:
@@ -1174,7 +1278,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                         has_area_block = True
                     total_perimeter_m += comp.corrected_perimeter() or comp.total_horizontal_distance()
                 elif blk is not None and blk.kind in (BlockKind.ROUTE, BlockKind.BRANCH):
-                    route_distance_m += comp.total_horizontal_distance()
+                    route_distance_m += self._included_horizontal_distance(blk_obs, comp)
 
         if has_area_block:
             perimeter_display = convert_distance_from_meters(total_perimeter_m, units.distance_unit)
@@ -1235,35 +1339,49 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.tr("HD, dX, and dY were updated, and managed layers were generated.")
         )
 
+    def _group_observations_by_block(self, observations):
+        from collections import OrderedDict
+
+        block_groups = OrderedDict()
+        for obs in observations:
+            block_groups.setdefault(obs.block_id or "blk_0", []).append(obs)
+        return list(block_groups.items())
+
     def _compute_blocks_chained(self, observations, start_coordinate, units):
         """Compute traverse per block, chaining coordinates between blocks.
 
-        For the first block the user-entered start_coordinate is used.
-        For subsequent blocks the from_station of the block's first row is
-        looked up in the coordinate pool built from all previously computed
-        blocks.  If the junction station is not yet in the pool (e.g. the
-        block order differs from the data order) the block is skipped.
+        A block-local Geo anchor takes priority when present. Otherwise the
+        first block uses the resolved start_coordinate, and subsequent blocks
+        inherit the from_station position from the coordinate pool built from
+        previously computed blocks. If the junction station is not yet in the
+        pool the block is skipped.
 
         coord_pool uses the same coordinate type (raw vs corrected) as the
         layer renderer so that junction stations stay at a single position.
 
         Returns list of (block_observations, TraverseComputation) in order.
         """
-        from collections import OrderedDict
-        block_groups = OrderedDict()
-        for obs in observations:
-            block_groups.setdefault(obs.block_id or "blk_0", []).append(obs)
-
+        block_groups = self._group_observations_by_block(observations)
         use_corrected = self.closureEnabledCheck.isChecked()
+        geo_values = self.observationTable.geo_values_snapshot()
         coord_pool = {}  # station_key → Coordinate
         results = []
 
-        for block_idx, (_bid, blk_obs) in enumerate(block_groups.items()):
+        for block_idx, (_bid, blk_obs) in enumerate(block_groups):
             if not blk_obs:
                 continue
             first_key = normalize_station_label(blk_obs[0].from_station)
+            blk_start = None
 
-            if block_idx == 0:
+            block_geo_start, _block_geo_note = self._compute_start_coordinate_from_geo_anchor(
+                blk_obs,
+                geo_values=geo_values,
+                unit_profile=units,
+                start_station=blk_obs[0].from_station,
+            )
+            if block_geo_start is not None:
+                blk_start = block_geo_start
+            elif block_idx == 0:
                 blk_start = start_coordinate
             elif first_key in coord_pool:
                 blk_start = coord_pool[first_key]
@@ -1275,6 +1393,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 start_coordinate=blk_start,
                 units=units,
                 start_station=blk_obs[0].from_station,
+                known_coordinates=coord_pool,
             )
 
             if first_key not in coord_pool:
@@ -1305,6 +1424,16 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         notes = []
         first_data_row = None
         source_line_values = list(source_refs) if source_refs is not None else None
+        excluded_rows, invalid_exclusion_rows = self._compute_excluded_output_rows(rows)
+        self._excluded_output_rows = set(excluded_rows)
+        self._invalid_exclusion_marker_rows = set(invalid_exclusion_rows)
+
+        for invalid_row in sorted(invalid_exclusion_rows):
+            notes.append(
+                self.tr("Row {}: Excluded segment start/end markers are invalid.").format(
+                    invalid_row + 1
+                )
+            )
 
         for row_index, row_values in enumerate(rows):
             values = {
@@ -1326,7 +1455,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             from_station = values["from_station"]
             target_station = values["target_station"]
             if not from_station or not target_station:
-                notes.append(f"{row_index + 1}行: 測量点と目標点が必要です")
+                notes.append(
+                    self.tr("Row {}: From and To stations are required.").format(
+                        row_index + 1
+                    )
+                )
                 continue
 
             row_kind = row_kinds[row_index] if row_kinds and row_index < len(row_kinds) else ""
@@ -1335,6 +1468,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 target_station=target_station,
                 connect_to=values["connect_to"],
                 close_to=values["close_to"],
+                exclude_marker=values["exclude_marker"],
                 slope_distance=self._parse_float(values["slope_distance"], row_index, "SD", notes),
                 inclination=self._parse_float(values["inclination"], row_index, "INC", notes),
                 azimuth=self._effective_azimuth(self._parse_float(values["azimuth"], row_index, "AZ", notes)),
@@ -1347,6 +1481,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     else row_index + 1
                 ),
                 row_kind=row_kind,
+                exclude_from_output=row_index in excluded_rows,
             )
             observations.append(observation)
             obs_row_kinds.append(row_kind)
@@ -1356,6 +1491,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if observations:
             blocks, block_id_per_obs = detect_blocks(observations, obs_row_kinds)
+            blocks = self._normalize_detected_block_kinds(
+                blocks,
+                block_id_per_obs,
+                observations,
+            )
             for blk in blocks:
                 if blk.block_id in self._block_manual_names:
                     blk.manual_name = self._block_manual_names[blk.block_id]
@@ -1364,11 +1504,54 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             for obs, bid in zip(observations, block_id_per_obs):
                 obs.block_id = bid
 
+        if update_blocks:
+            self._update_geo_highlight_rows(observations)
+
         return observations, notes
+
+    def _update_geo_highlight_rows(self, observations):
+        required_rows = set()
+        optional_rows = set()
+        seen_block_ids = set()
+        for obs_index, obs in enumerate(observations):
+            block_id = obs.block_id or "blk_0"
+            if block_id in seen_block_ids:
+                continue
+            seen_block_ids.add(block_id)
+            source_line = obs.source_line or 0
+            if source_line > 0:
+                row_index = source_line - 1
+                if obs_index == 0:
+                    required_rows.add(row_index)
+                else:
+                    optional_rows.add(row_index)
+        self.observationTable.set_geo_hint_rows(required_rows, optional_rows)
 
     def _block_display_name(self, block_id: str) -> str:
         blk = self._detected_blocks.get(block_id or "")
         return blk.display_name() if blk else (block_id or "")
+
+    def _normalize_detected_block_kinds(self, blocks, block_id_per_obs, observations):
+        block_rows = {}
+        for row_index, block_id in enumerate(block_id_per_obs):
+            if block_id:
+                block_rows.setdefault(block_id, []).append(row_index)
+
+        normalized_blocks = []
+        for blk in blocks:
+            row_indexes = block_rows.get(blk.block_id, [])
+            if blk.kind == BlockKind.AREA:
+                normalized_blocks.append(blk)
+                continue
+            if row_indexes and all(
+                getattr(observations[row_index], "exclude_from_output", False)
+                for row_index in row_indexes
+            ):
+                blk.kind = BlockKind.BRANCH
+            else:
+                blk.kind = BlockKind.ROUTE
+            normalized_blocks.append(blk)
+        return normalized_blocks
 
     def _refresh_block_name_combo(self):
         self.blockNameCombo.blockSignals(True)
@@ -1392,7 +1575,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         try:
             return float(cleaned.replace(",", ""))
         except ValueError:
-            notes.append(f"{row_index + 1}行: {label} が数値として解釈できません")
+            notes.append(
+                self.tr("Row {}: {} could not be parsed as a number.").format(
+                    row_index + 1,
+                    label,
+                )
+            )
             return None
 
     def _effective_azimuth(self, raw_azimuth):
@@ -1403,7 +1591,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return (raw_azimuth + declination) % 360.0
 
     # ------------------------------------------------------------------
-    # Row-kind management (branch/route_override coloring)
+    # Row-kind management (excluded segment / included line coloring)
     # ------------------------------------------------------------------
 
     def _ensure_row_kinds_size(self):
@@ -1425,7 +1613,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._save_current_project_state()
 
     def _set_row_kind_cascade(self, start_row, kind):
-        """Set kind at start_row and propagate forward through auto-branch rows."""
+        """Set kind at start_row and propagate forward through auto-detected rows."""
         self._ensure_row_kinds_size()
         if kind == "route_override":
             for row_index in range(start_row, len(self._auto_row_kinds)):
@@ -1455,12 +1643,51 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         is_mismatch = source_line in self._mismatch_source_lines
         is_acknowledged = source_line in self._acknowledged_mismatch_source_lines
         has_kind_action = effective_kind in ("branch", "route_override")
-        if not has_kind_action and not is_mismatch and not is_acknowledged:
+        has_exclusion_action = True
+        if not has_kind_action and not is_mismatch and not is_acknowledged and not has_exclusion_action:
             return
         menu = QtWidgets.QMenu(self)
+        marker_col = DEFAULT_NOTEBOOK_COLUMNS.index("exclude_marker")
+        marker_text = self._table_cell_text(row_index, marker_col)
+        has_start = bool(self._normalize_exclusion_marker(marker_text, "start"))
+        has_end = bool(self._normalize_exclusion_marker(marker_text, "end"))
+        start_text = (
+            self.tr("Clear Excl. Start")
+        ) if has_start else (
+            self.tr("Mark Excl. Start")
+        )
+        end_text = (
+            self.tr("Clear Excl. End")
+        ) if has_end else (
+            self.tr("Mark Excl. End")
+        )
+        both_text = (
+            self.tr("Clear Excl. Single")
+            if has_start and has_end
+            else self.tr("Exclude as Single")
+        )
+        start_action = menu.addAction(start_text)
+        start_action.triggered.connect(
+            lambda checked=False, row=row_index, start=not has_start, end=has_end: self._set_exclusion_marker_state(
+                row, start, end
+            )
+        )
+        end_action = menu.addAction(end_text)
+        end_action.triggered.connect(
+            lambda checked=False, row=row_index, start=has_start, end=not has_end: self._set_exclusion_marker_state(
+                row, start, end
+            )
+        )
+        both_action = menu.addAction(both_text)
+        both_action.triggered.connect(
+            lambda checked=False, row=row_index, enabled=not (has_start and has_end): self._set_exclusion_marker_state(
+                row, enabled, enabled
+            )
+        )
         if has_kind_action:
+            menu.addSeparator()
             if effective_kind == "branch":
-                act = menu.addAction(self.tr("Treat as Route (include)"))
+                act = menu.addAction(self.tr("Treat as Line (include)"))
                 act.triggered.connect(
                     lambda: self._set_row_kind_cascade(row_index, "route_override")
                 )
@@ -1512,7 +1739,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 user_kind = self._row_kinds[row_index] if row_index < len(self._row_kinds) else ""
                 auto_kind = self._auto_row_kinds[row_index] if row_index < len(self._auto_row_kinds) else ""
                 effective_kind = user_kind or auto_kind
-                if effective_kind == "branch":
+                is_excluded_row = row_index in self._excluded_output_rows
+                is_invalid_exclusion_row = row_index in self._invalid_exclusion_marker_rows
+                if is_excluded_row:
+                    fg = QBrush(red)
+                elif effective_kind == "branch":
                     fg = QBrush(red)
                 elif effective_kind == "route_override":
                     fg = QBrush(green)
@@ -1525,7 +1756,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 for col in range(self.observationTable.columnCount()):
                     item = self.observationTable.item(row_index, col)
                     if item is not None:
-                        if col == from_col and is_mismatch_row:
+                        if is_invalid_exclusion_row and col in (
+                            DEFAULT_NOTEBOOK_COLUMNS.index("exclude_marker"),
+                        ):
+                            item.setBackground(QBrush(QColor(255, 220, 120)))
+                        elif col == from_col and is_mismatch_row:
                             item.setBackground(QBrush(QColor(255, 180, 60)))
                         elif col == from_col and is_acknowledged_row:
                             item.setBackground(QBrush(QColor(180, 210, 240)))
@@ -1537,12 +1772,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.observationTable.viewport().update()
 
     def _refresh_auto_row_kinds(self):
-        """Re-run lightweight block detection (no user overrides) to update auto branch flags.
-
-        Does NOT touch _detected_blocks or the block name combo — those reflect the
-        last full calculation with user overrides applied.
-        """
+        """Show detected connecting-line candidates as included route rows (green)."""
         row_count = self.observationTable.rowCount()
+        auto = [""] * row_count
         try:
             rows = self._table_snapshot()
             observations, _notes = self._collect_observations_from_rows(
@@ -1556,27 +1788,20 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._apply_row_kind_colors()
             return
 
-        auto = [""] * row_count
         if observations:
-            obs_row_kinds = [obs.row_kind for obs in observations]
-            blocks, block_id_per_obs = detect_blocks(observations, obs_row_kinds)
-            block_kind_by_id = {blk.block_id: blk.kind for blk in blocks}
-            for obs, bid in zip(observations, block_id_per_obs):
-                obs.block_id = bid
-            for obs in observations:
-                sl = (obs.source_line or 1) - 1
-                if 0 <= sl < len(auto):
-                    kind_val = block_kind_by_id.get(obs.block_id)
-                    if kind_val == BlockKind.BRANCH:
-                        auto[sl] = "branch"
+            raw_blocks, block_id_per_obs = detect_blocks(observations, None)
+            block_kind_by_id = {blk.block_id: blk.kind for blk in raw_blocks}
+            for obs, block_id in zip(observations, block_id_per_obs):
+                source_line = (obs.source_line or 1) - 1
+                if 0 <= source_line < len(auto):
+                    if block_kind_by_id.get(block_id) == BlockKind.BRANCH:
+                        auto[source_line] = "route_override"
 
         self._auto_row_kinds = auto
-        # route_override was set to suppress BRANCH detection.
-        # If the row is no longer auto-detected as BRANCH, the override is stale — clear it.
         self._ensure_row_kinds_size()
         for row_index, user_kind in enumerate(self._row_kinds):
             if user_kind == "route_override" and (
-                row_index >= len(auto) or auto[row_index] != "branch"
+                row_index >= len(auto) or auto[row_index] != "route_override"
             ):
                 self._row_kinds[row_index] = ""
         self._apply_row_kind_colors()
@@ -1697,14 +1922,22 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 self._current_unit_profile().distance_unit,
             )
             note_parts.append(
-                f"補正後周長={display_perimeter:.3f} {self.distanceUnitCombo.currentText()}"
+                self.tr("Corrected perimeter = {value:.3f} {unit}").format(
+                    value=display_perimeter,
+                    unit=self.distanceUnitCombo.currentText(),
+                )
             )
         area = computation.corrected_area()
         if area is not None:
-            note_parts.append(f"補正後面積={area:.3f} m2 ({math.floor(area / 10000.0 * 100) / 100:.2f} ha)")
+            note_parts.append(
+                self.tr("Corrected area = {square_meters:.3f} m2 ({hectares:.2f} ha)").format(
+                    square_meters=area,
+                    hectares=math.floor(area / 10000.0 * 100) / 100,
+                )
+            )
         if not note_parts:
             return self.tr("Calculated successfully.")
-        return " / ".join(note_parts)
+        return self.tr(" / ").join(note_parts)
 
     def _populate_project_table(self):
         carryover = self._project_record.year_carryover
@@ -1809,6 +2042,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.tr("To"),
             self.tr("Connect To"),
             self.tr("Close To"),
+            self.tr("Excl. Seg."),
             "SD",
             "INC",
             "AZ",
@@ -1818,12 +2052,15 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.tr("dY"),
         ]
         self.observationTable.setHorizontalHeaderLabels(headers)
+        self._retranslate_exclusion_marker_cells()
         if self._current_language_code == "ja":
             self.fullscreenButton.setText("プラグインを隠す")
             self.fullscreenButton.setToolTip("プラグインを隠してQGISキャンバスを広く使う")
         else:
             self.fullscreenButton.setText("Hide Plugin")
             self.fullscreenButton.setToolTip("Hide the plugin to use the full QGIS canvas")
+        if self._preview_layer_ids:
+            self._run_calculation_preview()
         self._update_notebook_hint_label()
         self._populate_project_table()
         self._rebuild_project_and_work_selectors(
@@ -2562,9 +2799,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _handle_geo_value_changed(self, row_index, column_index, latitude_text, longitude_text):
         del column_index
-        if self._loading_project_state or self._normalizing_geo_assignments:
+        if self._loading_project_state:
             return
-        self._normalize_geo_assignments(source_row=row_index)
         self._sync_start_coordinate_from_geo()
         if latitude_text or longitude_text:
             self._mark_current_project_dirty(
@@ -2616,7 +2852,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 start_station=start_station or self._initial_start_station(observations),
             )
         except Exception as error:
-            return None, f"位置から開始座標を計算できません: {error}"
+            return None, self.tr(
+                "Could not compute the start coordinate from the Geo column: {}"
+            ).format(error)
 
         anchor_index = next(
             (
@@ -2627,22 +2865,28 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             None,
         )
         if anchor_index is None:
-            return None, "位置が設定された行を計算対象として解釈できませんでした。"
+            return None, self.tr(
+                "The row with Geo input could not be interpreted as a calculation row."
+            )
 
         anchor_leg = relative_computation.leg_results[anchor_index]
         start_coordinate = Coordinate(
             x=anchor_coordinate.x - anchor_leg.from_coordinate.x,
             y=anchor_coordinate.y - anchor_leg.from_coordinate.y,
         )
-        return start_coordinate, "位置から開始座標を自動設定しました。"
+        return start_coordinate, self.tr(
+            "The start coordinate was set automatically from the Geo column."
+        )
 
     def _sync_start_coordinate_from_geo(self):
         observations, notes = self._collect_observations_from_table()
         del notes
         if not observations:
             return False
+        block_groups = self._group_observations_by_block(observations)
+        first_block_observations = block_groups[0][1] if block_groups else observations
         start_coordinate, coordinate_note = self._compute_start_coordinate_from_geo_anchor(
-            observations
+            first_block_observations
         )
         del coordinate_note
         if start_coordinate is None:
@@ -2651,15 +2895,19 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return True
 
     def _resolve_start_coordinate(self, observations):
+        block_groups = self._group_observations_by_block(observations)
+        first_block_observations = block_groups[0][1] if block_groups else observations
         start_coordinate, coordinate_note = self._compute_start_coordinate_from_geo_anchor(
-            observations
+            first_block_observations
         )
         if start_coordinate is not None:
             self._apply_start_coordinate(start_coordinate)
             return start_coordinate, coordinate_note
 
         if not self._has_explicit_start_coordinate():
-            return None, "開始位置が未設定です。野帳の「位置」列にいずれかの測点の緯度・経度を入力してから計算してください。"
+            return None, self.tr(
+                "The start position is not set. Enter latitude/longitude for any station in the Geo column before running the calculation."
+            )
 
         return Coordinate(self.startXSpin.value(), self.startYSpin.value()), ""
 
@@ -2682,7 +2930,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return start_coordinate, coordinate_note
 
         if not self._has_explicit_start_coordinate(start_x, start_y, start_coordinate_defined):
-            return None, "開始位置が未設定です。野帳の「位置」列にいずれかの測点の緯度・経度を入力してから計算してください。"
+            return None, self.tr(
+                "The start position is not set. Enter latitude/longitude for any station in the Geo column before running the calculation."
+            )
 
         return Coordinate(start_x, start_y), ""
 
@@ -2896,10 +3146,16 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.blockNameCombo.blockSignals(True)
             self.blockNameCombo.clear()
             self.blockNameCombo.blockSignals(False)
-            self._restore_table_snapshot(snapshot.get("rows", []))
+            snapshot_rows = snapshot.get("rows", [])
+            self._restore_table_snapshot(snapshot_rows)
             self._refresh_station_name_cache()
             self._row_kinds = list(snapshot.get("row_kinds", []))
-            self.observationTable.restore_geo_values_snapshot(snapshot.get("geo_values", {}))
+            self.observationTable.restore_geo_values_snapshot(
+                self._normalize_snapshot_geo_values(
+                    snapshot.get("geo_values", {}),
+                    snapshot_rows,
+                )
+            )
             self._sync_start_coordinate_from_geo()
             self._station_reference_targets = dict(snapshot.get("station_reference_targets", {}))
             self._acknowledged_mismatch_source_lines = set(
@@ -2946,13 +3202,80 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         finally:
             self.blockNameCombo.blockSignals(False)
 
+    def _normalize_snapshot_row(self, row_values):
+        values = list(row_values or [])
+        if len(values) == len(DEFAULT_NOTEBOOK_COLUMNS):
+            marker_value = str(values[4]).strip() if len(values) > 4 else ""
+            valid_marker = marker_value in {
+                "",
+                "開始",
+                "終了",
+                "単独",
+                "Start",
+                "End",
+                "Single",
+                "除外開始点",
+                "除外終点",
+                "除外開始点・終点",
+            }
+            shifted_snapshot = (
+                not valid_marker
+                and len(values) >= 12
+                and str(values[11]).strip() == ""
+            )
+            if shifted_snapshot:
+                return values[:4] + [""] + values[4:11]
+            return values
+        if len(values) == len(DEFAULT_NOTEBOOK_COLUMNS) - 1:
+            return values[:4] + [""] + values[4:]
+        transient_two_marker_len = len(DEFAULT_NOTEBOOK_COLUMNS) + 1
+        if len(values) == transient_two_marker_len:
+            marker = ""
+            old_start = str(values[4]).strip() if len(values) > 4 else ""
+            old_end = str(values[5]).strip() if len(values) > 5 else ""
+            if old_start:
+                marker = old_start
+            elif old_end:
+                marker = old_end
+            return values[:4] + [marker] + values[6:]
+        return values[: len(DEFAULT_NOTEBOOK_COLUMNS)] + [""] * max(0, len(DEFAULT_NOTEBOOK_COLUMNS) - len(values))
+
+    def _normalize_snapshot_geo_values(self, geo_values, rows):
+        values = dict(geo_values or {})
+        if not values:
+            return values
+
+        current_geo_col = DEFAULT_NOTEBOOK_COLUMNS.index("geo_point")
+        normalized = {}
+        for key, geo_value in values.items():
+            if not (isinstance(key, tuple) and len(key) >= 2 and isinstance(key[1], int)):
+                normalized[key] = geo_value
+                continue
+
+            row_index, column_index = key[0], key[1]
+            if column_index == current_geo_col:
+                normalized[(row_index, column_index)] = geo_value
+                continue
+
+            use_legacy_left = any(len(list(row or [])) == len(DEFAULT_NOTEBOOK_COLUMNS) - 1 for row in (rows or []))
+            use_legacy_right = any(len(list(row or [])) == len(DEFAULT_NOTEBOOK_COLUMNS) + 1 for row in (rows or []))
+            if column_index == current_geo_col - 1 and use_legacy_left:
+                normalized[(row_index, current_geo_col)] = geo_value
+            elif column_index == current_geo_col + 1 and use_legacy_right:
+                normalized[(row_index, current_geo_col)] = geo_value
+            elif column_index in (current_geo_col - 1, current_geo_col + 1):
+                normalized[(row_index, current_geo_col)] = geo_value
+            else:
+                normalized[(row_index, column_index)] = geo_value
+        return normalized
+
     def _restore_table_snapshot(self, rows):
         row_count = max(12, len(rows))
         self.observationTable.blockSignals(True)
         try:
             self.observationTable.setRowCount(row_count)
             for row_index in range(row_count):
-                row_values = rows[row_index] if row_index < len(rows) else []
+                row_values = self._normalize_snapshot_row(rows[row_index] if row_index < len(rows) else [])
                 for column_index in range(len(DEFAULT_NOTEBOOK_COLUMNS)):
                     value = row_values[column_index] if column_index < len(row_values) else ""
                     self._set_table_cell_text(row_index, column_index, value)
@@ -3255,57 +3578,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return f"X={self.startXSpin.value():.3f}, Y={self.startYSpin.value():.3f}"
 
     def _normalize_geo_assignments(self, source_row=None):
-        if self._loading_project_state or self._normalizing_geo_assignments:
-            return
-
-        geo_column = DEFAULT_NOTEBOOK_COLUMNS.index("geo_point")
-        geo_values = self.observationTable.geo_values_snapshot()
-        if not geo_values:
-            return
-
-        components = self._connected_row_components()
-        component_by_row = {}
-        for component in components:
-            for row_index in component:
-                component_by_row[row_index] = component
-
-        rows_to_clear = []
-        blocked_source = False
-        for component in components:
-            geo_rows = sorted(
-                row_index
-                for row_index in component
-                if geo_values.get((row_index, geo_column))
-                and any(geo_values.get((row_index, geo_column), ("", "")))
-            )
-            if len(geo_rows) <= 1:
-                continue
-            for row_index in geo_rows[1:]:
-                rows_to_clear.append(row_index)
-                if source_row is not None and row_index == source_row:
-                    blocked_source = True
-
-        if not rows_to_clear:
-            return
-
-        self._normalizing_geo_assignments = True
-        try:
-            for row_index in rows_to_clear:
-                self.observationTable.set_geo_value(row_index, geo_column, "", "")
-        finally:
-            self._normalizing_geo_assignments = False
-
-        if source_row is not None and blocked_source:
-            self.notebookHintLabel.setText(
-                "同じ連結ブロックでは、若い行番号の位置だけを保持します。後ろの行の位置は削除しました。"
-            )
-        else:
-            self.notebookHintLabel.setText(
-                "接続関係に合わせて、連結ブロック内の位置を若い行番号へ統一しました。"
-            )
-        self._mark_current_project_dirty(
-            "位置の割当を調整しました。計算・レイヤ更新で反映してください。"
-        )
+        del source_row
+        return
 
     def _connected_row_components(self):
         row_count = self.observationTable.rowCount()
@@ -3552,16 +3826,47 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         root_rule.appendChild(default_rule)
 
         layer.setRenderer(QgsRuleBasedRenderer(root_rule))
+        text_format = QgsTextFormat()
+        text_format.setSize(7)
+        buffer_settings = QgsTextBufferSettings()
+        buffer_settings.setEnabled(True)
+        buffer_settings.setSize(0.8)
+        buffer_settings.setColor(QColor("#ffffff"))
+        text_format.setBuffer(buffer_settings)
+
+        label_settings = QgsPalLayerSettings()
+        label_settings.enabled = True
+        label_settings.fieldName = "label_text"
+        label_settings.setFormat(text_format)
+        layer.setLabelsEnabled(True)
+        layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
 
     def _apply_line_layer_style(self, layer):
-        symbol = QgsLineSymbol.createSimple(
+        active_symbol = QgsLineSymbol.createSimple(
             {
                 "line_color": "#ff000d",
                 "line_width": "1.36",
                 "line_width_unit": "Pixel",
             }
         )
-        layer.renderer().setSymbol(symbol)
+        excluded_symbol = QgsLineSymbol.createSimple(
+            {
+                "line_color": "#8f8f8f",
+                "line_style": "dash",
+                "line_width": "1.00",
+                "line_width_unit": "Pixel",
+            }
+        )
+        root_rule = QgsRuleBasedRenderer.Rule(None)
+        excluded_rule = QgsRuleBasedRenderer.Rule(excluded_symbol)
+        excluded_rule.setFilterExpression('"excluded" = 1')
+        excluded_rule.setLabel(self.tr("Excl. Seg."))
+        active_rule = QgsRuleBasedRenderer.Rule(active_symbol)
+        active_rule.setIsElse(True)
+        active_rule.setLabel(self.tr("Active Segment"))
+        root_rule.appendChild(excluded_rule)
+        root_rule.appendChild(active_rule)
+        layer.setRenderer(QgsRuleBasedRenderer(root_rule))
 
     def _apply_polygon_layer_style(self, layer):
         symbol = QgsFillSymbol.createSimple(
@@ -3585,6 +3890,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         provider.addAttributes(
             [
                 QgsField("station", QVariant.String),
+                QgsField("label_text", QVariant.String),
                 QgsField("x", QVariant.Double),
                 QgsField("y", QVariant.Double),
                 QgsField("seq_index", QVariant.Int),
@@ -3595,6 +3901,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         s_map = self._build_seq_index_map(observations or [])
         b_map = self._build_block_id_map(observations or [])
+        l_map = self._build_point_label_map(computation, observations or [])
 
         coordinates = self._effective_coordinates(computation)
         features = []
@@ -3603,7 +3910,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(coordinate.x, coordinate.y)))
             seq = s_map.get(station_key, -1)
             bid = b_map.get(station_key, "")
-            feature.setAttributes([station_key, coordinate.x, coordinate.y, seq, bid])
+            label_text = l_map.get(station_key, station_key)
+            feature.setAttributes([station_key, label_text, coordinate.x, coordinate.y, seq, bid])
             features.append(feature)
         provider.addFeatures(features)
         layer.updateExtents()
@@ -3668,6 +3976,99 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 b_map[tk] = bid
         return b_map
 
+    def _build_point_label_map(self, computation, observations):
+        """Return {station_key: label_text} for point-layer labeling.
+
+        Normally labels follow the station name. If a leg closes to an existing
+        station, the endpoint label prefers the close_to text so the closing
+        point is shown using the closure reference name.
+        """
+        label_map = {
+            normalize_station_label(computation.start_station): computation.start_station,
+        }
+        for obs in observations:
+            from_key = normalize_station_label(obs.from_station)
+            target_key = normalize_station_label(obs.target_station)
+            if from_key and from_key not in label_map:
+                label_map[from_key] = obs.from_station
+            if target_key:
+                label_map[target_key] = obs.close_to or obs.target_station
+        return label_map
+
+    def _included_horizontal_distance(self, observations, computation):
+        total = 0.0
+        for observation, leg in zip(observations, computation.leg_results):
+            if getattr(observation, "exclude_from_output", False):
+                continue
+            total += leg.horizontal_distance
+        return total
+
+    def _line_segment_points(self, computation, start_index, end_index):
+        if start_index > end_index or start_index < 0:
+            return []
+        points = []
+        if start_index == 0:
+            points.append(computation.start_coordinate)
+        else:
+            prev_leg = computation.leg_results[start_index - 1]
+            points.append(prev_leg.corrected_target_coordinate or prev_leg.target_coordinate)
+        for leg in computation.leg_results[start_index:end_index + 1]:
+            points.append(leg.corrected_target_coordinate or leg.target_coordinate)
+        return points
+
+    def _build_output_block_entries(self, block_computations):
+        entries = []
+        for blk_obs, blk_comp in block_computations:
+            if not blk_obs:
+                continue
+            blk_id = blk_obs[0].block_id or "blk_0"
+            blk = self._detected_blocks.get(blk_id or "")
+            block_name = self._block_display_name(blk_id)
+            is_area = bool(blk is not None and blk.kind == BlockKind.AREA)
+            if not is_area and blk_comp.latest_closure() is not None:
+                is_area = True
+
+            if is_area:
+                entries.append(
+                    {
+                        "block_id": blk_id,
+                        "block_name": block_name,
+                        "block_kind": "area",
+                        "observations": blk_obs,
+                        "computation": blk_comp,
+                        "leg_results": list(blk_comp.leg_results),
+                    }
+                )
+                continue
+
+            seg_start = 0
+            seg_kind = "branch" if blk_obs[0].exclude_from_output else "route"
+            seg_index = 1
+            for obs_index in range(1, len(blk_obs) + 1):
+                at_end = obs_index >= len(blk_obs)
+                next_kind = None if at_end else ("branch" if blk_obs[obs_index].exclude_from_output else "route")
+                if not at_end and next_kind == seg_kind:
+                    continue
+                seg_obs = blk_obs[seg_start:obs_index]
+                seg_legs = list(blk_comp.leg_results[seg_start:obs_index])
+                seg_id = blk_id if seg_index == 1 else f"{blk_id}_{seg_kind}_{seg_index}"
+                seg_name = block_name if seg_index == 1 else f"{block_name} ({'Branch' if seg_kind == 'branch' else 'Line'} {seg_index})"
+                entries.append(
+                    {
+                        "block_id": seg_id,
+                        "block_name": seg_name,
+                        "block_kind": seg_kind,
+                        "observations": seg_obs,
+                        "computation": blk_comp,
+                        "leg_results": seg_legs,
+                        "line_points": self._line_segment_points(blk_comp, seg_start, obs_index - 1),
+                    }
+                )
+                seg_index += 1
+                seg_start = obs_index
+                seg_kind = next_kind
+        return entries
+
     def _line_route_type(self, leg_index, computation):
         closure = computation.latest_closure()
         if closure is not None and leg_index <= closure.leg_index:
@@ -3691,6 +4092,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 QgsField("dy", QVariant.Double),
                 QgsField("block_nm", QVariant.String),
                 QgsField("route_tp", QVariant.String),
+                QgsField("excluded", QVariant.Int),
             ]
         )
         layer.updateFields()
@@ -3724,6 +4126,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     dy,
                     block_name,
                     self._line_route_type(leg_index, computation),
+                    1 if observation and observation.exclude_from_output else 0,
                 ]
             )
             features.append(feature)
@@ -4055,7 +4458,18 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if not is_floating:
             self._is_floating_fullscreen = False
             self._pre_fullscreen_geometry = None
+        self._sync_floating_window_flags(is_floating)
         self._update_fullscreen_button_label()
+
+    def _sync_floating_window_flags(self, is_floating):
+        """Use a normal top-level window when floating so Alt+Tab can target it."""
+        if is_floating:
+            geometry = self.geometry()
+            self.setWindowFlag(Qt.WindowType.Tool, False)
+            self.setWindowFlag(Qt.WindowType.Window, True)
+            self.show()
+            if geometry.isValid():
+                self.setGeometry(geometry)
 
     def _update_fullscreen_button_label(self):
         if self._current_language_code == "ja":

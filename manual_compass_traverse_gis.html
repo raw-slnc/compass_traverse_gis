@@ -41,6 +41,12 @@
     h1, h2, h3 { margin: 0 0 12px; line-height: 1.25; }
     h1 { font-size: 2rem; }
     h2 { font-size: 1.35rem; padding-bottom: 8px; border-bottom: 2px solid var(--accent-soft); }
+    h3 {
+      font-size: 1.02rem;
+      margin-top: 22px;
+      padding-top: 10px;
+      border-top: 1px solid #eadfce;
+    }
     section {
       margin-bottom: 26px;
       padding: 22px 24px;
@@ -50,17 +56,37 @@
       box-shadow: 0 10px 24px rgba(60,45,20,0.06);
     }
     p, li { color: var(--ink); }
-    .muted { color: var(--muted); }
+    p + table,
+    p + ol,
+    p + ul,
+    .muted + table,
+    .muted + ol,
+    .muted + ul,
+    table + .muted,
+    table + p,
+    table + h3,
+    ol + .note,
+    ul + .note,
+    .figure + h3,
+    .note + h3 {
+      margin-top: 14px;
+    }
+    .muted {
+      color: var(--muted);
+      margin-top: 10px;
+    }
     .note {
       padding: 10px 14px;
       border-left: 4px solid var(--accent);
       background: #fff6f4;
       border-radius: 8px;
+      margin-top: 14px;
     }
     code {
-      padding: 0.1em 0.4em;
-      border-radius: 6px;
-      background: #f1ece3;
+      padding: 0.14em 0.46em;
+      border-radius: 7px;
+      background: #eee5d7;
+      border: 1px solid #dbcbb5;
       font-family: "Cascadia Code", "Consolas", monospace;
       font-size: 0.95em;
     }
@@ -79,6 +105,197 @@
       color: var(--ink);
     }
     .lang-btn:hover { background: var(--accent-soft); }
+    .top-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .page-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffaf2;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--ink);
+    }
+    .page-btn.active {
+      background: #ead9c4;
+      font-weight: 700;
+    }
+    .page {
+      display: none;
+    }
+    .page.active {
+      display: block;
+    }
+    .figure {
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fffaf3;
+    }
+    .figure-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .figure-box {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .figure-box h3 {
+      margin-bottom: 8px;
+      font-size: 1rem;
+    }
+    .ui-mock {
+      margin-top: 10px;
+      border: 1px solid #b8b8b8;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #f3f3f3 0%, #e7e7e7 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+      overflow: hidden;
+    }
+    .ui-mock-body {
+      padding: 14px;
+    }
+    .ui-form {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 10px 12px;
+      align-items: center;
+    }
+    .ui-label {
+      color: #2f2f2f;
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+    .ui-combo {
+      position: relative;
+      min-height: 34px;
+      padding: 7px 34px 7px 10px;
+      border: 1px solid #a9a9a9;
+      border-radius: 6px;
+      background: linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
+      color: #222;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+    }
+    .ui-combo::after {
+      content: "▾";
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #555;
+      font-size: 0.9rem;
+    }
+    .ui-list {
+      margin-top: 12px;
+      border: 1px solid #bdbdbd;
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .ui-list-row {
+      padding: 9px 12px;
+      border-top: 1px solid #e1e1e1;
+      font-size: 0.94rem;
+      color: #222;
+    }
+    .ui-list-row:first-child {
+      border-top: 0;
+    }
+    .ui-list-row.is-active {
+      background: #d9ecff;
+      font-weight: 600;
+    }
+    .ui-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      background: #ffffff;
+      font-size: 0.94rem;
+    }
+    .ui-table th,
+    .ui-table td {
+      border: 1px solid #bdbdbd;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    .ui-table th {
+      background: #efefef;
+      color: #333;
+      font-weight: 700;
+      width: 38%;
+    }
+    .ui-value {
+      background: #ffffff;
+      color: #222;
+    }
+    .ui-value.is-edit {
+      background: #ffffff;
+    }
+    .ui-value.is-toggle {
+      background: #f6f6f6;
+    }
+    .formula {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid #d8c9b3;
+      border-radius: 10px;
+      background: #fffaf2;
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+    .spec-table td:first-child,
+    .spec-table th:first-child {
+      width: 32%;
+    }
+    .plain-chip {
+      display: inline-block;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      border-radius: 0;
+      font-family: inherit;
+      font-size: inherit;
+    }
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    .mini-table td {
+      border: 1px solid var(--line);
+      padding: 6px 8px;
+    }
+    .editable {
+      background: transparent;
+      font-weight: 700;
+      border-left: 0;
+    }
+    .arrow {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    ol + p.muted,
+    ul + p.muted,
+    table + p.muted,
+    .figure + p.muted {
+      margin-top: 16px;
+    }
+    @media (max-width: 760px) {
+      .figure-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
@@ -89,52 +306,145 @@
         <p class="muted" data-ja>QGIS プラグイン <code>Compass Traverse GIS</code> の基本操作と、野帳・計算・レイヤ管理の考え方をまとめた簡易マニュアルです。</p>
         <p class="muted" data-en>A quick reference for <code>Compass Traverse GIS</code> — field notebook entry, traverse computation, layer management, and export.</p>
       </div>
-      <button class="lang-btn" onclick="toggleLang()">EN / 日本語</button>
+      <div class="top-actions">
+        <button class="page-btn" data-page="manual" onclick="setPage('manual')">Manual</button>
+        <button class="page-btn" data-page="spec" onclick="setPage('spec')">Spec</button>
+        <button class="lang-btn" onclick="toggleLang()">EN / 日本語</button>
+      </div>
     </header>
 
     <!-- ===== JAPANESE ===== -->
-    <div id="content-ja">
+    <div id="content-ja" class="lang-root">
+      <div id="page-manual-ja" class="page active">
 
       <section>
         <h2>1. 概要</h2>
-        <p>このプラグインは、コンパス測量の野帳入力、接続点・閉合点管理、トラバース計算、レイヤ生成、帳票エクスポートを一体で扱うための作業画面です。</p>
+        <p>このプラグインは、コンパス測量の野帳入力、接続点・閉合点管理、トラバース計算、レイヤ生成、帳票エクスポートを QGIS 上で一体的に扱うための作業画面です。</p>
         <div class="note">レイヤはプラグイン管理レイヤとして生成されます。必要に応じてシンボロジ変更はできますが、元データ編集は野帳テーブル側で行ってください。</div>
       </section>
 
       <section>
         <h2>2. 基本構成</h2>
         <table>
-          <tr><th>左パネル</th><td>データ状態、プロジェクト・作業名選択、ブロック名称、成果物管理</td></tr>
-          <tr><th>野帳 タブ</th><td>野帳入力、測量設定、接続点・閉合点、位置入力</td></tr>
-          <tr><th>Project タブ</th><td>プロジェクト管理情報、計算サマリー、言語切替</td></tr>
+          <tr><th>左パネル</th><td><code>データ状態</code>、<code>プロジェクト</code> / <code>作業名</code> 切替、<code>ブロック名称</code>、<code>成果物</code></td></tr>
+          <tr><th>野帳 タブ</th><td>野帳入力、測量設定、接続点・閉合点、除外区間、位置入力</td></tr>
+          <tr><th><code>プロジェクト</code> タブ</th><td><code>プロジェクト管理</code>、<code>計算サマリー</code>、言語切替</td></tr>
         </table>
       </section>
 
       <section>
-        <h2>3. データ状態グループ</h2>
-        <p>左パネル上部の「データ状態」グループには、作業データの保存状況が表示されます。</p>
+        <h2>3. <code>プロジェクト</code> / <code>作業名</code> の考え方</h2>
+        <p>このプラグインでは、<code>プロジェクト</code> が親グループ、<code>作業名</code> が個別の測量データです。<code>プロジェクト</code> では実データの一覧表示や新規登録・削除を行い、<code>作業名</code> で現在扱う実データを切り替えます。</p>
         <table>
-          <tr><th>現行データ</th><td>現在読み込まれている SQLite ファイル名。QGIS プロジェクト未保存時は「データ未作成」と表示されます。</td></tr>
-          <tr><th>切替</th><td>退避済みデータが存在する場合に有効になります。過去データを「保存データを切替」ダイアログから読み込み直せます。</td></tr>
-          <tr><th>新規作成</th><td>現行データをアーカイブフォルダへ退避し、新しい SQLite を作成します。QGIS プロジェクトを保存してから実行してください。</td></tr>
+          <tr><th><code>プロジェクト</code></th><td>複数の <code>作業名</code> をまとめる親グループです。左パネルの <code>プロジェクト</code> コンボから、実データの一覧表示や新規登録・削除を行います。</td></tr>
+          <tr><th><code>作業名</code></th><td>実際の測量データ単位です。野帳、位置情報、計算状態、<code>プロジェクト</code> タブの表示内容は <code>作業名</code> ごとに保存されます。</td></tr>
+          <tr><th>切替時の動作</th><td><code>作業名</code> を切り替えると、その実データに保存されている野帳・位置・計算状態・<code>プロジェクト</code> タブの内容が表示されます。</td></tr>
         </table>
         <div class="note">
-          SQLite は QGIS プロジェクトと同じフォルダに作成されます。退避済みファイルは <code>_compass_traverse_gis_archive</code> フォルダに保存されます。
+          <code>プロジェクト</code> / <code>作業名</code> の内容は、QGIS プロジェクトと同じフォルダに作られる SQLite に保存されます。QGIS プロジェクト未保存時は保存先が確定しないため、先に QGIS プロジェクトを保存してください。
+        </div>
+        <div class="figure">
+          <strong>図解: <code>プロジェクト</code> と <code>作業名</code> の関係</strong>
+          <div class="ui-mock">
+            <div class="ui-mock-body">
+              <div class="ui-form">
+                <div class="ui-label">プロジェクト</div>
+                <div class="ui-combo">道路改良A</div>
+                <div class="ui-label">作業名</div>
+                <div class="ui-combo">道路改良A / 右岸測量</div>
+              </div>
+              <div class="figure-grid">
+                <div class="figure-box">
+                  <h3><span class="plain-chip">プロジェクト一覧</span></h3>
+                  <div class="ui-list">
+                    <div class="ui-list-row is-active">道路改良A</div>
+                    <div class="ui-list-row">森林境界B</div>
+                    <div class="ui-list-row">新規プロジェクトを追加...</div>
+                  </div>
+                </div>
+                <div class="figure-box">
+                  <h3><span class="plain-chip">作業名一覧</span></h3>
+                  <div class="ui-list">
+                    <div class="ui-list-row is-active">道路改良A / 右岸測量</div>
+                    <div class="ui-list-row">道路改良A / 横断追加</div>
+                    <div class="ui-list-row">作業名を削除...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="arrow"><code>プロジェクト</code> では実データの一覧表示や新規登録を行い、<code>作業名</code> を切り替えるとその実データに保存されている野帳・位置・<code>プロジェクト</code> タブの内容が表示されます。</div>
         </div>
       </section>
 
       <section>
-        <h2>4. 野帳入力</h2>
+        <h2>4. <code>データ状態</code></h2>
+        <p>左パネル上部の <code>データ状態</code> には、現在の保存先とワークスペース切替機能が表示されます。</p>
+        <table>
+          <tr><th><code>現行データ</code></th><td>現在読み込まれている SQLite ファイル名です。QGIS プロジェクト未保存時は <code>データ未作成</code> と表示されます。</td></tr>
+          <tr><th><code>切替</code></th><td>退避済みデータがある場合に有効になります。保存済みの別ワークスペースへ切り替えます。</td></tr>
+          <tr><th><code>新規作成</code></th><td>現在の SQLite をアーカイブし、新しいワークスペースを作成します。実行前に QGIS プロジェクトを保存してください。</td></tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>5. <code>プロジェクト</code> タブの編集</h2>
+        <p><code>プロジェクト管理</code> の表は、左列が <code>項目</code>、右列が <code>値</code> です。基本的には右列の <code>値</code> 側を編集しますが、<code>完了フラグ</code> だけは通常入力ではなく、該当セルのダブルクリックで状態を切り替えます。</p>
+        <table>
+          <tr><th>値を入力する項目</th><td><code>プロジェクト名</code>, <code>作業名</code>, <code>測定者</code>, <code>測定日時</code>, <code>年度基準日</code>, <code>事業年度</code>, <code>年度繰越</code>, <code>事業樹別</code></td></tr>
+          <tr><th><code>完了フラグ</code></th><td>右列セルをダブルクリックして、編集中と完了を切り替えます。</td></tr>
+          <tr><th>保存単位</th><td>現在選択中の <code>作業名</code> に対して保存されます。</td></tr>
+          <tr><th>注意</th><td>名称を変更したあとは、必要に応じて <code>レイヤ更新</code> を実行して表示や出力を更新してください。</td></tr>
+        </table>
+        <div class="figure">
+          <strong>図解: <code>プロジェクト管理</code> のどこを編集するか</strong>
+          <div class="ui-mock">
+            <div class="ui-mock-body">
+              <table class="ui-table">
+                <tr><th>項目</th><th>値</th></tr>
+                <tr><td>プロジェクト名</td><td class="ui-value is-edit">道路改良A ← ここを書き換える</td></tr>
+                <tr><td>作業名</td><td class="ui-value is-edit">右岸測量 ← ここを書き換える</td></tr>
+                <tr><td>測定者</td><td class="ui-value is-edit">空欄または入力済みの値 ← ここを書き換える</td></tr>
+                <tr><td>完了フラグ</td><td class="ui-value is-toggle">編集中 / 完了 ← ここをダブルクリック</td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="arrow">左列の <code>項目</code> は見出しです。右列の <code>値</code> を編集します。<code>完了フラグ</code> だけはダブルクリックで切り替えます。</div>
+        </div>
+        <h3>操作手順</h3>
+        <p class="muted">値の変更は次の流れで行います。</p>
+        <ol>
+          <li><code>プロジェクト</code> タブを開く</li>
+          <li><code>プロジェクト管理</code> テーブルの変更したい行を探す</li>
+          <li>名称や属性を変更するときは、右列の <code>値</code> セルをクリック、またはダブルクリックして編集する</li>
+          <li><code>完了フラグ</code> を切り替えるときは、その右列セルをダブルクリックする</li>
+          <li>表示名を出力へ反映したい場合は <code>レイヤ更新</code> を押す</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>6. 野帳入力</h2>
         <ul>
           <li>測量点（<code>測量点</code>）と目標点（<code>目標点</code>）は、数値に限らず自由な文字列で入力できます。</li>
           <li><code>接続点</code> と <code>閉合点</code> は、ダブルクリックで測点候補から選択できます。</li>
           <li><code>位置</code> 列はダブルクリックで緯度経度入力モーダルを開きます。</li>
+          <li><code>除外区間</code> 列は、出力から除外する区間を表します。右クリックメニューから <code>開始</code> / <code>終了</code> / <code>単独</code> を設定できます。</li>
           <li>空行は視認上の区切りとして使用できます。</li>
         </ul>
+        <div class="note">測点番号そのものが順序を表すとは限りません。プラグインはテーブル上の接続関係を使って連続区間を解釈します。</div>
+        <h3>操作手順</h3>
+        <p class="muted">野帳の入力や各セルの設定は次の流れで行います。</p>
+        <ol>
+          <li>野帳テーブルのセルをクリックして、<code>測量点</code>、<code>目標点</code>、<code>SD</code>、<code>INC</code>、<code>AZ</code> などを直接入力する</li>
+          <li><code>接続点</code> または <code>閉合点</code> を設定したい行は、そのセルをダブルクリックして候補一覧から選ぶ</li>
+          <li><code>位置</code> を設定したい行は、そのセルをダブルクリックして緯度経度入力画面を開く</li>
+          <li><code>除外区間</code> を設定したい行は、その行を右クリックして <code>開始にする</code>、<code>終了にする</code>、<code>単独で除外</code> を選ぶ</li>
+          <li>入力や設定を変更したあと、必要に応じて <code>レイヤ更新</code> を押して計算と表示へ反映する</li>
+        </ol>
       </section>
 
       <section>
-        <h2>5. 野帳インポート</h2>
+        <h2>7. 野帳インポート</h2>
         <p><code>測量テーブル読込</code> を押すと、CSV または Excel 形式の測量表を野帳へ読み込みます。</p>
         <ul>
           <li>対応形式は <code>.csv</code>, <code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code> です。</li>
@@ -156,12 +466,14 @@
           <tr><td>緯度</td><td>緯度, lat, latitude</td></tr>
           <tr><td>経度</td><td>経度, lon, lng, longitude</td></tr>
         </table>
-        <h3>読込時の流れ</h3>
+        <p class="muted">上の表は自動検知の目安です。実際の読込操作は次の流れで進みます。</p>
         <ol>
-          <li>ファイルを選択する</li>
+          <li><code>測量テーブル読込</code> ボタンを押す</li>
+          <li>ファイル選択ダイアログで CSV または Excel ファイルを選ぶ</li>
           <li>列対応ダイアログで、自動検知結果を確認する</li>
-          <li>必要なら手動で対応列を変更する</li>
+          <li>必要ならプルダウンを変更して対応列を指定する</li>
           <li>「測量点」と「目標点」に相当する列が設定されていれば読み込む</li>
+          <li>読込後に内容を確認し、必要に応じて <code>レイヤ更新</code> を押す</li>
         </ol>
         <div class="note"><strong>必須列:</strong> 少なくとも「測量点」と「目標点」の対応が必要です。これらが未設定のままでは読み込みできません。</div>
         <p>緯度・経度列を対応させた場合は、野帳の「位置」列に内部データとして保存され、セル表示は「設定済」になります。</p>
@@ -169,51 +481,222 @@
       </section>
 
       <section>
-        <h2>6. 位置と開始座標</h2>
+        <h2>8. 行の表示ルール</h2>
         <ul>
-          <li>「位置」が入力された行は、開始座標逆算のアンカーとして使われます。</li>
-          <li>同じ連結ブロック内に位置が複数ある場合は、若い行番号側を優先します。</li>
-          <li>開始座標が確定できない場合、計算やレイヤ更新は停止します。</li>
+          <li>赤字の行は、除外区間として扱われる行です。総延長や一部の出力集計から除外されます。</li>
+          <li>緑字の行は、自動判定では接続線候補だが、右クリックメニューの <code>Treat as Line (include)</code> により通常ラインとして扱う設定が入っている行です。</li>
+          <li>測量点セルのオレンジ背景は接続不一致の警告、水色背景は不一致を承認した状態を表します。</li>
+        </ul>
+        <div class="note"><code>Exclude Connecting Lines</code> チェックは、接続線候補の集計除外を補助するためのオプションです。最終的な除外指定は各行の <code>除外区間</code> 設定で確認してください。</div>
+      </section>
+
+      <section>
+        <h2>9. 位置と開始座標</h2>
+        <ul>
+          <li>測量を計算させるために、測量の最初の測量点には <code>位置</code> の設定が必須です。</li>
+          <li><code>位置</code> 列で強めの緑背景になっている行は必須行、薄い緑背景になっている行は各ブロックの開始行です。</li>
+          <li>薄い緑背景の行の <code>位置</code> は任意ですが、設定するとそのブロックを独自の位置で配置できます。</li>
+          <li>必須行の <code>位置</code> が未設定のままでは、計算やレイヤ更新は停止します。</li>
         </ul>
       </section>
 
       <section>
-        <h2>7. 計算・レイヤ更新</h2>
+        <h2>10. 計算・レイヤ更新</h2>
         <p><code>レイヤ更新</code> を押すと、現在の野帳内容から計算を行い、管理レイヤを再生成します。</p>
         <ul>
           <li><code>HD</code>、<code>ΔX</code>、<code>ΔY</code> を更新</li>
           <li>点・線・面レイヤを生成</li>
-          <li>連携先がある場合は、連携先作業の完了データも同時表示</li>
+          <li>ブロック名ごとの表示や、除外区間の表示色をプレビューへ反映</li>
         </ul>
+        <h3>実行の目安</h3>
+        <p class="muted"><code>レイヤ更新</code> は、次のようなタイミングで実行します。</p>
+        <ol>
+          <li>野帳を手入力したあと</li>
+          <li><code>接続点</code>、<code>閉合点</code>、<code>位置</code>、<code>除外区間</code> を変更したあと</li>
+          <li><code>プロジェクト管理</code> の名称を変更し、表示や出力へ反映したいとき</li>
+        </ol>
+        <div class="note">接続不一致が残っている場合や、開始座標が確定できない場合は、内容を確認してから再実行してください。</div>
       </section>
 
       <section>
-        <h2>8. エクスポート</h2>
+        <h2>11. エクスポート</h2>
         <ul>
-          <li><code>エクスポート</code> は完了フラグ（完了フラグ = 1）が立っている作業のみ実行できます。</li>
+          <li><code>エクスポート</code> は <code>完了フラグ</code> が完了状態の作業のみ実行できます。</li>
           <li>HTML 帳票、地図 PDF、関連出力をまとめて生成します。</li>
           <li>出力先フォルダはエクスポートダイアログで指定します。</li>
         </ul>
+        <h3>操作手順</h3>
+        <p class="muted">出力するときは、次の流れで確認します。</p>
+        <ol>
+          <li><code>プロジェクト</code> タブで <code>完了フラグ</code> を確認する</li>
+          <li>必要なら <code>レイヤ更新</code> を押して最新状態にする</li>
+          <li>左パネルの <code>エクスポート</code> を押す</li>
+          <li>出力設定ダイアログで出力先や用紙設定を確認する</li>
+          <li>出力前に赤字行と <code>除外区間</code> の設定を見直す</li>
+        </ol>
+        <div class="note">除外区間は HTML 帳票や集計にも反映されます。出力前に、赤字行と <code>除外区間</code> 列の設定内容を確認してください。</div>
       </section>
 
       <section>
-        <h2>9. 運用メモ</h2>
+        <h2>12. 運用メモ</h2>
         <ul>
           <li>測点名を変更した場合、参照している接続点・閉合点は自動追従します。</li>
-          <li>連携は作業単位です。連携先は完了済みデータである必要があります。</li>
+          <li><code>プロジェクト</code> タブのサマリーや備考は、現在選択中の <code>作業名</code> ごとに保存・表示されます。</li>
           <li>どうしてもレイヤを自由編集したい場合は、別レイヤへ複製して使用してください。</li>
           <li><code>プラグインを隠す</code> ボタンでプラグインを非表示にし、QGISキャンバスを広く使えます。ツールバーアイコンで再表示できます。</li>
         </ul>
       </section>
 
+      </div>
+
+      <div id="page-spec-ja" class="page">
+        <section>
+          <h2>技術仕様</h2>
+          <p>このページは、<code>Compass Traverse GIS</code> が内部でどのように計算を行うかを、実装に基づいて整理した技術仕様です。提出時の説明根拠として使えるよう、式・処理順・補正方法を明示します。</p>
+          <div class="note">以下の内容は、主に <code>survey_model.py</code>、<code>compass_traverse_gis_dockwidget.py</code>、<code>export_html.py</code> の実装に基づいています。</div>
+        </section>
+
+        <section>
+          <h2>1. 入力と前提</h2>
+          <table class="spec-table">
+            <tr><th>対象列</th><td><code>測量点</code>, <code>目標点</code>, <code>接続点</code>, <code>閉合点</code>, <code>除外区間</code>, <code>SD</code>, <code>INC</code>, <code>AZ</code>, <code>HD</code>, <code>位置</code></td></tr>
+            <tr><th>距離単位</th><td><code>m</code> または <code>ft</code>。内部計算時はメートルへ変換します。</td></tr>
+            <tr><th>高低角単位</th><td><code>deg</code> または <code>pct</code>。<code>pct</code> は勾配百分率として扱います。</td></tr>
+            <tr><th>方位角の基準</th><td>北を 0° とし、時計回りに増加する方位角として扱います。</td></tr>
+          </table>
+        </section>
+
+        <section>
+          <h2>2. 単位変換</h2>
+          <p>距離と高低角は、計算前に次の規則で正規化されます。</p>
+          <div class="formula">距離:
+if unit == m: distance_m = value
+if unit == ft: distance_m = value × 0.3048
+
+高低角:
+if unit == deg: inclination_deg = value
+if unit == pct: inclination_deg = atan(value / 100) × 180 / π</div>
+        </section>
+
+        <section>
+          <h2>3. 磁気偏差の扱い</h2>
+          <p>野帳で入力された <code>AZ</code> は、プラグイン側で磁気偏差を加算した値を計算用方位角として使います。</p>
+          <div class="formula">true_azimuth = (raw_azimuth + magnetic_declination) mod 360</div>
+          <table class="spec-table">
+            <tr><th>設定位置</th><td><code>測量設定</code> の <code>磁気偏差</code></td></tr>
+            <tr><th>符号</th><td>実装上は <code>+ 東偏 / - 西偏</code> として加算します。</td></tr>
+          </table>
+        </section>
+
+        <section>
+          <h2>4. 水平距離の決定</h2>
+          <p>各行の水平距離は、<code>SD + INC</code> がある場合はそれを優先し、無い場合は <code>HD</code> を使います。</p>
+          <div class="formula">if SD and INC are present:
+    HD = SD_m × cos(inclination_deg × π / 180)
+else if HD is present:
+    HD = convert_to_meters(HD)
+else:
+    calculation error</div>
+          <div class="note"><code>SD</code> と <code>INC</code> はペアで必要です。片方だけでは計算できません。</div>
+        </section>
+
+        <section>
+          <h2>5. 平面座標差の計算</h2>
+          <p>水平距離と方位角から、各観測行の <code>ΔX</code> と <code>ΔY</code> を求めます。</p>
+          <div class="formula">ΔX = HD × sin(AZ)
+ΔY = HD × cos(AZ)</div>
+          <table class="spec-table">
+            <tr><th>X</th><td>東西方向（Easting）</td></tr>
+            <tr><th>Y</th><td>南北方向（Northing）</td></tr>
+          </table>
+        </section>
+
+        <section>
+          <h2>6. 開始座標の決定</h2>
+          <p>開始座標は、明示入力された <code>開始X</code> / <code>開始Y</code> がある場合はそれを使います。無い場合は、<code>位置</code> 列にある最初の有効な緯度経度を基準に逆算します。</p>
+          <div class="formula">1. 緯度経度を QGIS プロジェクト CRS へ変換
+2. 開始座標を (0, 0) とした相対トラバースを一度計算
+3. 位置が入っている行の from_coordinate を求める
+4. start_coordinate = anchor_coordinate - anchor_leg.from_coordinate</div>
+          <div class="note"><code>位置</code> が無く、<code>開始X</code> / <code>開始Y</code> も未設定の場合は、計算と出力を停止します。</div>
+        </section>
+
+        <section>
+          <h2>7. 行順処理と測点ラベル</h2>
+          <p>計算はテーブル行順で進みます。測点ラベルは識別に使いますが、並び順そのものはテーブル順が基準です。</p>
+          <table class="spec-table">
+            <tr><th>基本</th><td>各行の <code>測量点 → 目標点</code> を順に展開します。</td></tr>
+            <tr><th>測量点欠番</th><td><code>from_station</code> が既知座標に無い場合、その時点の最後の計算座標を引き継いで続行します。</td></tr>
+            <tr><th>不一致検知</th><td>同一ブロック内で、前行の <code>目標点</code> と次行の <code>測量点</code> が一致しない場合は不一致として検出します。</td></tr>
+          </table>
+        </section>
+
+        <section>
+          <h2>8. 閉合差の計算</h2>
+          <p><code>閉合点</code> が指定された行では、その行で計算された目標点座標と、参照先閉合点の既知座標との差を閉合差として求めます。</p>
+          <div class="formula">error_x = computed_target.x - reference_coordinate.x
+error_y = computed_target.y - reference_coordinate.y
+error_distance = √(error_x² + error_y²)</div>
+          <div class="formula">closure_ratio = closure_span_distance / error_distance</div>
+          <p>ここで <code>closure_span_distance</code> は、開始点からその閉合行までの水平距離合計です。</p>
+        </section>
+
+        <section>
+          <h2>9. 閉合補正</h2>
+          <p>閉合がある場合は、最新の閉合に対して Bowditch（コンパス則）補正を適用します。補正対象は開始点からその閉合行までです。</p>
+          <div class="formula">ratio_i = leg_i.horizontal_distance / span_distance
+correction_x_i = closure.error_x × ratio_i
+correction_y_i = closure.error_y × ratio_i
+
+corrected_ΔX_i = ΔX_i - correction_x_i
+corrected_ΔY_i = ΔY_i - correction_y_i</div>
+          <div class="formula">corrected_target_i.x = corrected_from_i.x + corrected_ΔX_i
+corrected_target_i.y = corrected_from_i.y + corrected_ΔY_i</div>
+          <div class="note">閉合行より後ろの行は、その時点までの補正済み座標を起点として、元の <code>ΔX</code>, <code>ΔY</code> をそのまま加算して続行します。</div>
+        </section>
+
+        <section>
+          <h2>10. 面積と周囲延長</h2>
+          <p>閉合が成立した場合、補正後座標を使って面積と周囲延長を求めます。</p>
+          <div class="formula">Area = |Σ(x_i × y_{i+1} - x_{i+1} × y_i)| / 2</div>
+          <table class="spec-table">
+            <tr><th>面積</th><td>補正後座標列に対して shoelace formula を適用します。</td></tr>
+            <tr><th>周囲延長</th><td>開始点から閉合行までの水平距離合計です。</td></tr>
+          </table>
+        </section>
+
+        <section>
+          <h2>11. 面積計算簿の式</h2>
+          <p>HTML の面積計算簿では、倍横距法による表も出力します。ここでは補正済みの <code>ΔX</code> / <code>ΔY</code> を優先して使用します。</p>
+          <div class="formula">Departure_i = corrected_ΔX_i (補正が無い場合は ΔX_i)
+Latitude_i  = corrected_ΔY_i (補正が無い場合は ΔY_i)
+
+DMD_1 = Departure_1
+DMD_i = DMD_{i-1} + Departure_{i-1} + Departure_i
+
+DoubleArea_i = DMD_i × Latitude_i
+Area = |Σ DoubleArea_i| / 2</div>
+        </section>
+
+        <section>
+          <h2>12. 除外区間と接続線を除く</h2>
+          <p><code>除外区間</code> は、主に出力集計で使用する除外指定です。各行の <code>exclude_from_output</code> として保持され、延長集計や HTML の備考に反映されます。</p>
+          <table class="spec-table">
+            <tr><th>幾何計算</th><td>行そのもののトラバース計算、座標展開、閉合差計算からは除外しません。</td></tr>
+            <tr><th>延長集計</th><td>除外行は、延長計や一部出力の合計から除外されます。</td></tr>
+            <tr><th><code>接続線を除く</code></th><td>出力エントリの <code>block_kind == branch</code> を、集計上「計算から除外」として扱います。</td></tr>
+          </table>
+        </section>
+      </div>
     </div><!-- #content-ja -->
 
     <!-- ===== ENGLISH ===== -->
-    <div id="content-en" style="display:none">
+    <div id="content-en" class="lang-root" style="display:none">
+      <div id="page-manual-en" class="page active">
 
       <section>
         <h2>1. Overview</h2>
-        <p>This plugin provides an integrated workspace for compass survey entry, connecting-point and closure management, traverse computation, layer generation, and report export.</p>
+        <p>This plugin provides an integrated QGIS workspace for compass survey entry, connecting-point and closure management, traverse computation, layer generation, and report export.</p>
         <div class="note">Layers are managed by the plugin. You may change symbology, but edit source data in the field notebook table, not in the QGIS layer.</div>
       </section>
 
@@ -221,36 +704,105 @@
         <h2>2. Layout</h2>
         <table>
           <tr><th>Left panel</th><td>Workspace Status, Project / Work Name selection, Block Name, Deliverables</td></tr>
-          <tr><th>Notebook tab</th><td>Field notebook entry, Survey Settings, Connect To / Close To, Geo coordinates</td></tr>
-          <tr><th>Project tab</th><td>Project management info, Calculation Summary, language toggle</td></tr>
+          <tr><th>Notebook tab</th><td>Field notebook entry, survey settings, Connect To / Close To, Excl. Seg., Geo coordinates</td></tr>
+          <tr><th>Project tab</th><td>Project Details, Calculation Summary, language toggle</td></tr>
         </table>
       </section>
 
       <section>
-        <h2>3. Workspace Status Group</h2>
-        <p>The <strong>Workspace Status</strong> group at the top of the left panel shows the current data storage state.</p>
+        <h2>3. Project / Work Structure</h2>
+        <p>In this plugin, <strong>Project</strong> is the parent group and <strong>Work Name</strong> is the individual survey dataset. Use <strong>Project</strong> to view the list of datasets and add or delete records, then use <strong>Work Name</strong> to switch the active dataset.</p>
         <table>
-          <tr><th>Current Data</th><td>The SQLite file currently loaded. Shows "Not Created" when the QGIS project has not been saved yet.</td></tr>
-          <tr><th>Switch</th><td>Enabled when archived data exists. Use the "Switch Saved Data" dialog to reload a past dataset.</td></tr>
-          <tr><th>New</th><td>Archives the current SQLite to the archive folder and creates a new one. Save the QGIS project first.</td></tr>
+          <tr><th>Project</th><td>Parent group that can contain multiple work records. Use the Project selector to view the dataset list and add or delete records.</td></tr>
+          <tr><th>Work Name</th><td>The actual survey record unit. Notebook data, Geo values, calculation state, and Project tab display are stored per work record.</td></tr>
+          <tr><th>Switching</th><td>When you switch Work Name, the notebook, Geo values, calculation state, and Project tab values stored for that dataset are shown.</td></tr>
         </table>
         <div class="note">
-          The SQLite file is created in the same folder as the QGIS project. Archived files are stored in <code>_compass_traverse_gis_archive</code>.
+          Project / Work data is stored in a SQLite file created next to the QGIS project. Save the QGIS project first so the storage location is fixed.
+        </div>
+        <div class="figure">
+          <strong>Diagram: relationship between Project and Work Name</strong>
+          <div class="figure-grid">
+            <div class="figure-box">
+              <h3>Project</h3>
+              <p><code>Road Improvement A</code></p>
+              <p><code>Forest Boundary B</code></p>
+            </div>
+            <div class="figure-box">
+              <h3>Work Name</h3>
+              <p><code>Road Improvement A / Right Bank Survey</code></p>
+              <p><code>Road Improvement A / Cross Section Add-on</code></p>
+              <p><code>Forest Boundary B / 2026-07-31</code></p>
+            </div>
+          </div>
+          <div class="arrow">Use Project to manage the dataset list and create records. Switching Work Name shows the notebook, Geo data, and Project tab values stored for that dataset.</div>
         </div>
       </section>
 
       <section>
-        <h2>4. Field Notebook Entry</h2>
+        <h2>4. Workspace Status</h2>
+        <p>The <strong>Workspace Status</strong> group at the top of the left panel shows the current storage target and workspace switching tools.</p>
+        <table>
+          <tr><th>Current Data</th><td>The currently loaded SQLite file. Shows "Not Created" when the QGIS project has not been saved yet.</td></tr>
+          <tr><th>Switch</th><td>Enabled when archived data exists. Switches to another saved workspace dataset.</td></tr>
+          <tr><th>New</th><td>Archives the current SQLite and creates a new workspace. Save the QGIS project first.</td></tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>5. Editing the Project Tab</h2>
+        <p>In <strong>Project Details</strong>, the left column is the item label and the right column is the value. Most fields are edited in the <strong>Value</strong> column, but <strong>Completion</strong> is toggled by double-clicking its value cell rather than typing into it.</p>
+        <table>
+          <tr><th>Typed fields</th><td>Project Name, Work Name, Surveyor, Measurement Date, Fiscal Start, Fiscal Year, Year Carryover, Tree Type</td></tr>
+          <tr><th>Completion</th><td>Double-click the value cell to toggle between editing and complete.</td></tr>
+          <tr><th>Stored per</th><td>The currently selected Work Name.</td></tr>
+          <tr><th>Note</th><td>After changing names, run <code>Update Layers</code> if you need refreshed display or export output.</td></tr>
+        </table>
+        <div class="figure">
+          <strong>Diagram: where to edit in Project Details</strong>
+          <table class="mini-table">
+            <tr><td>Item</td><td>Value</td></tr>
+            <tr><td>Project Name</td><td class="editable">Road Improvement A ← edit here</td></tr>
+            <tr><td>Work Name</td><td class="editable">Right Bank Survey ← edit here</td></tr>
+            <tr><td>Surveyor</td><td class="editable">Blank or existing value ← edit here</td></tr>
+            <tr><td>Completion</td><td class="editable">Editing / Complete ← double-click here</td></tr>
+          </table>
+          <div class="arrow">The Item column is a label. Edit the Value column for normal fields, and double-click the Completion cell to toggle its state.</div>
+        </div>
+        <h3>Editing Flow</h3>
+        <p class="muted">Use the following flow when editing these values.</p>
+        <ol>
+          <li>Open the <code>Project</code> tab</li>
+          <li>Find the row you want to change in <code>Project Details</code></li>
+          <li>For normal fields, click or double-click the cell in the <code>Value</code> column and edit it</li>
+          <li>For <code>Completion</code>, double-click the value cell to toggle the state</li>
+          <li>If you changed names used in output, run <code>Update Layers</code></li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>6. Field Notebook Entry</h2>
         <ul>
           <li><code>From</code> and <code>To</code> accept any string, not just numbers.</li>
           <li><code>Connect To</code> and <code>Close To</code>: double-click to pick from a station list.</li>
           <li><code>Geo</code> column: double-click to open the latitude/longitude entry dialog.</li>
+          <li><code>Excl. Seg.</code> marks segments to exclude from output totals. Use the context menu to set <code>Start</code>, <code>End</code>, or <code>Single</code>.</li>
           <li>Blank rows are allowed as visual separators.</li>
         </ul>
+        <div class="note">Station labels do not necessarily define sequence. The plugin interprets continuous segments from the connection flow in the table.</div>
+        <h3>Input and Setting Flow</h3>
+        <p class="muted">The typical input and setting flow is as follows.</p>
+        <ol>
+          <li>Click a notebook cell to enter <code>From</code>, <code>To</code>, <code>SD</code>, <code>INC</code>, <code>AZ</code>, and related values directly</li>
+          <li>Double-click a <code>Connect To</code> or <code>Close To</code> cell to choose a station from the candidate list</li>
+          <li>Double-click a <code>Geo</code> cell to open the latitude/longitude input dialog</li>
+          <li>Right-click a row to open the context menu and set <code>Start</code>, <code>End</code>, or <code>Single</code> for <code>Excl. Seg.</code></li>
+          <li>Run <code>Update Layers</code> after changes when you want the calculation and preview refreshed</li>
+        </ol>
       </section>
 
       <section>
-        <h2>5. Import Survey Table</h2>
+        <h2>7. Import Survey Table</h2>
         <p>Click <code>Import Survey Table</code> to load a CSV or Excel file into the notebook.</p>
         <ul>
           <li>Supported formats: <code>.csv</code>, <code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>.</li>
@@ -271,12 +823,14 @@
           <tr><td>Latitude</td><td>lat, latitude, 緯度</td></tr>
           <tr><td>Longitude</td><td>lon, lng, longitude, 経度</td></tr>
         </table>
-        <h3>Import workflow</h3>
+        <p class="muted">The table above is only a guide for automatic column detection. The actual import flow is below.</p>
         <ol>
-          <li>Select a file</li>
+          <li>Click <code>Import Survey Table</code></li>
+          <li>Select a CSV or Excel file in the file dialog</li>
           <li>Review auto-detected column mappings in the dialog</li>
-          <li>Adjust manually if needed</li>
+          <li>Adjust mappings manually if needed</li>
           <li>Import proceeds when at least <code>From</code> and <code>To</code> are mapped</li>
+          <li>Review the imported table, then run <code>Update Layers</code> if needed</li>
         </ol>
         <div class="note"><strong>Required:</strong> At least the From and To columns must be mapped. Import is blocked otherwise.</div>
         <p>If latitude/longitude columns are mapped, the data is stored internally in the <code>Geo</code> column and the cell shows "Set".</p>
@@ -284,52 +838,215 @@
       </section>
 
       <section>
-        <h2>6. Geo and Start Coordinate</h2>
+        <h2>8. Row Display Rules</h2>
+        <ul>
+          <li>Rows shown in red are treated as excluded segments and are omitted from total-length style summaries.</li>
+          <li>Rows shown in green are auto-detected connecting-line candidates that have been explicitly treated as normal lines.</li>
+          <li>An orange background on the From cell indicates a connection mismatch warning. A light blue background indicates the mismatch has been acknowledged.</li>
+        </ul>
+        <div class="note"><code>Exclude Connecting Lines</code> is a helper option for total-length handling. The definitive per-row exclusion state is shown in the <code>Excl. Seg.</code> column.</div>
+      </section>
+
+      <section>
+        <h2>9. Geo and Start Coordinate</h2>
         <ul>
           <li>A row with a <code>Geo</code> value is used as an anchor to back-calculate the start coordinate.</li>
-          <li>If multiple Geo values exist in the same block, the earliest row takes priority.</li>
+          <li>If multiple Geo values exist, the first valid one encountered in calculation order is used to determine the start coordinate.</li>
           <li>If the start coordinate cannot be resolved, computation and layer update will stop.</li>
         </ul>
       </section>
 
       <section>
-        <h2>7. Update Layers</h2>
+        <h2>10. Update Layers</h2>
         <p>Click <code>Update Layers</code> to run the traverse computation and regenerate managed layers.</p>
         <ul>
           <li>Updates <code>HD</code>, <code>dX</code>, and <code>dY</code></li>
           <li>Generates point, line, and polygon layers</li>
-          <li>If a linked project exists, its completed data is displayed simultaneously</li>
+          <li>Reflects block naming and excluded-segment display colors in the preview</li>
         </ul>
+        <h3>When to Run It</h3>
+        <p class="muted">Run <code>Update Layers</code> at times like the following.</p>
+        <ol>
+          <li>After manual notebook edits</li>
+          <li>After changing <code>Connect To</code>, <code>Close To</code>, <code>Geo</code>, or <code>Excl. Seg.</code></li>
+          <li>After changing names in <code>Project Details</code> when output or display should be refreshed</li>
+        </ol>
+        <div class="note">If connection mismatches remain or the start coordinate cannot be resolved, review the notebook before running the update again.</div>
       </section>
 
       <section>
-        <h2>8. Export</h2>
+        <h2>11. Export</h2>
         <ul>
-          <li><code>Export</code> is only available when Completion flag is set (Completion = 1).</li>
+          <li><code>Export</code> is only available when <code>Completion</code> is in the complete state.</li>
           <li>Generates HTML report, map PDF, and related outputs together.</li>
           <li>The output folder is specified in the Export dialog.</li>
         </ul>
+        <h3>Pre-Export Checklist</h3>
+        <p class="muted">Before exporting, check the following flow.</p>
+        <ol>
+          <li>Check <code>Completion</code> in the <code>Project</code> tab</li>
+          <li>Run <code>Update Layers</code> if the latest edits are not yet reflected</li>
+          <li>Click <code>Export</code> in the left panel</li>
+          <li>Review the output settings dialog, including output folder and paper settings</li>
+          <li>Confirm red rows and <code>Excl. Seg.</code> settings before final output</li>
+        </ol>
+        <div class="note">Excluded segments are reflected in the HTML report and summary values. Check the red rows and the <code>Excl. Seg.</code> column before export.</div>
       </section>
 
       <section>
-        <h2>9. Notes</h2>
+        <h2>12. Notes</h2>
         <ul>
           <li>When a station name is changed, Connect To and Close To references update automatically.</li>
-          <li>Linking works per work record. The linked target must be marked complete.</li>
+          <li>Summary values and notes on the Project tab are stored and displayed per selected Work Name.</li>
           <li>If you need to freely edit a layer, duplicate it to a separate layer first.</li>
           <li>The <code>Hide Plugin</code> button hides the plugin panel so you can use the full QGIS canvas. Click the toolbar icon to restore it.</li>
         </ul>
       </section>
 
+      </div>
+
+      <div id="page-spec-en" class="page">
+        <section>
+          <h2>Technical Specification</h2>
+          <p>This page documents how <code>Compass Traverse GIS</code> performs its internal calculations. It is intended to clarify the basis of the plugin's output and provide a defensible explanation for exported deliverables.</p>
+          <div class="note">The statements below are derived from the implementation in <code>survey_model.py</code>, <code>compass_traverse_gis_dockwidget.py</code>, and <code>export_html.py</code>.</div>
+        </section>
+
+        <section>
+          <h2>1. Inputs and Assumptions</h2>
+          <table class="spec-table">
+            <tr><th>Columns</th><td><code>From</code>, <code>To</code>, <code>Connect To</code>, <code>Close To</code>, <code>Excl. Seg.</code>, <code>SD</code>, <code>INC</code>, <code>AZ</code>, <code>HD</code>, <code>Geo</code></td></tr>
+            <tr><th>Distance units</th><td><code>m</code> or <code>ft</code>; converted to meters internally.</td></tr>
+            <tr><th>Inclination units</th><td><code>deg</code> or <code>pct</code>; percent is treated as grade percentage.</td></tr>
+            <tr><th>Azimuth basis</th><td>Clockwise from north.</td></tr>
+          </table>
+        </section>
+
+        <section>
+          <h2>2. Unit Conversion</h2>
+          <div class="formula">Distance:
+if unit == m: distance_m = value
+if unit == ft: distance_m = value × 0.3048
+
+Inclination:
+if unit == deg: inclination_deg = value
+if unit == pct: inclination_deg = atan(value / 100) × 180 / π</div>
+        </section>
+
+        <section>
+          <h2>3. Magnetic Declination</h2>
+          <p>The entered azimuth is adjusted in the plugin before traverse computation.</p>
+          <div class="formula">true_azimuth = (raw_azimuth + magnetic_declination) mod 360</div>
+        </section>
+
+        <section>
+          <h2>4. Horizontal Distance</h2>
+          <p><code>SD + INC</code> is preferred when both are present. Otherwise, explicit <code>HD</code> is used.</p>
+          <div class="formula">if SD and INC are present:
+    HD = SD_m × cos(inclination_deg × π / 180)
+else if HD is present:
+    HD = convert_to_meters(HD)
+else:
+    calculation error</div>
+        </section>
+
+        <section>
+          <h2>5. Planar Deltas</h2>
+          <div class="formula">ΔX = HD × sin(AZ)
+ΔY = HD × cos(AZ)</div>
+        </section>
+
+        <section>
+          <h2>6. Start Coordinate</h2>
+          <p>If no explicit start coordinate is given, the first valid <code>Geo</code> anchor is used to back-calculate the start point.</p>
+          <div class="formula">1. Transform latitude/longitude into the QGIS project CRS
+2. Compute a relative traverse from (0, 0)
+3. Find the from_coordinate of the anchored row
+4. start_coordinate = anchor_coordinate - anchor_leg.from_coordinate</div>
+        </section>
+
+        <section>
+          <h2>7. Row-Order Processing</h2>
+          <table class="spec-table">
+            <tr><th>Primary rule</th><td>Rows are processed in table order.</td></tr>
+            <tr><th>Station labels</th><td>Used as identifiers, not as the primary ordering rule.</td></tr>
+            <tr><th>Missing from-station coordinate</th><td>If a <code>from_station</code> is unknown, the computation inherits the most recently computed coordinate and continues.</td></tr>
+          </table>
+        </section>
+
+        <section>
+          <h2>8. Closure Error</h2>
+          <div class="formula">error_x = computed_target.x - reference_coordinate.x
+error_y = computed_target.y - reference_coordinate.y
+error_distance = √(error_x² + error_y²)
+
+closure_ratio = closure_span_distance / error_distance</div>
+        </section>
+
+        <section>
+          <h2>9. Closure Correction</h2>
+          <p>When a closure exists, Bowditch correction is applied to the latest closed span.</p>
+          <div class="formula">ratio_i = leg_i.horizontal_distance / span_distance
+correction_x_i = closure.error_x × ratio_i
+correction_y_i = closure.error_y × ratio_i
+
+corrected_ΔX_i = ΔX_i - correction_x_i
+corrected_ΔY_i = ΔY_i - correction_y_i</div>
+        </section>
+
+        <section>
+          <h2>10. Area and Perimeter</h2>
+          <div class="formula">Area = |Σ(x_i × y_{i+1} - x_{i+1} × y_i)| / 2</div>
+          <p>The perimeter reported for a closed traverse is the horizontal-distance sum from the start through the closure leg.</p>
+        </section>
+
+        <section>
+          <h2>11. Double Meridian Distance Sheet</h2>
+          <div class="formula">Departure_i = corrected_ΔX_i (or raw ΔX_i)
+Latitude_i  = corrected_ΔY_i (or raw ΔY_i)
+
+DMD_1 = Departure_1
+DMD_i = DMD_{i-1} + Departure_{i-1} + Departure_i
+
+DoubleArea_i = DMD_i × Latitude_i
+Area = |Σ DoubleArea_i| / 2</div>
+        </section>
+
+        <section>
+          <h2>12. Excluded Segments and Exclude Connecting Lines</h2>
+          <table class="spec-table">
+            <tr><th>Geometry calculation</th><td>Excluded segments are still used in traverse expansion and coordinate computation.</td></tr>
+            <tr><th>Totals and output</th><td>Excluded rows are omitted from selected distance totals and are marked in output notes.</td></tr>
+            <tr><th><code>Exclude Connecting Lines</code></th><td>Entries classified as <code>branch</code> are treated as excluded in output summaries.</td></tr>
+          </table>
+        </section>
+      </div>
     </div><!-- #content-en -->
 
   </main>
 
   <script>
+    function getPage() {
+      var hash = window.location.hash.replace('#', '');
+      if (hash.indexOf('page=spec') >= 0) return 'spec';
+      return 'manual';
+    }
     function getLang() {
       var hash = window.location.hash.replace('#', '');
       if (hash === 'lang=en') return 'en';
+      if (hash.indexOf('lang=en') >= 0) return 'en';
       return 'ja';
+    }
+    function applyPage(page) {
+      document.querySelectorAll('.page').forEach(function(el){
+        el.classList.remove('active');
+      });
+      var lang = getLang();
+      var active = document.getElementById('page-' + page + '-' + lang);
+      if (active) active.classList.add('active');
+      document.querySelectorAll('.page-btn').forEach(function(btn){
+        btn.classList.toggle('active', btn.getAttribute('data-page') === page);
+      });
     }
     function applyLang(lang) {
       document.getElementById('content-ja').style.display = (lang === 'ja') ? '' : 'none';
@@ -337,10 +1054,16 @@
       document.documentElement.lang = lang;
       document.querySelectorAll('[data-ja]').forEach(function(el){ el.style.display = (lang === 'ja') ? '' : 'none'; });
       document.querySelectorAll('[data-en]').forEach(function(el){ el.style.display = (lang === 'en') ? '' : 'none'; });
+      applyPage(getPage());
+    }
+    function setPage(page) {
+      var lang = getLang();
+      window.location.hash = 'lang=' + lang + '&page=' + page;
+      applyLang(lang);
     }
     function toggleLang() {
       var next = (getLang() === 'ja') ? 'en' : 'ja';
-      window.location.hash = 'lang=' + next;
+      window.location.hash = 'lang=' + next + '&page=' + getPage();
       applyLang(next);
     }
     applyLang(getLang());

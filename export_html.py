@@ -19,12 +19,6 @@ try:
 except ImportError:
     _HAS_MAP_CANVAS = False
 
-try:
-    from qgis.PyQt.QtWebEngineWidgets import QWebEngineView
-    _HAS_WEBENGINE = True
-except ImportError:
-    _HAS_WEBENGINE = False
-
 # ---------------------------------------------------------------------------
 # Paper sizes: (width_mm, height_mm)
 # ---------------------------------------------------------------------------
@@ -411,10 +405,6 @@ class ExportSettingsDialog(QtWidgets.QDialog):
 
         self.preview_tabs = QtWidgets.QTabWidget()
 
-        _ignored = QtWidgets.QSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Ignored,
-            QtWidgets.QSizePolicy.Policy.Ignored)
-
         # Map preview: QgsMapCanvas embedded inside a paper frame widget
         if _HAS_MAP_CANVAS:
             self._frame_plain = PaperFrameWidget("A4 縦")
@@ -679,10 +669,10 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             dx = ext.width() * 0.1
             dy = ext.height() * 0.1
             offsets = {
-                QtCore.Qt.Key.Key_Left:  (-dx,   0),
-                QtCore.Qt.Key.Key_Right: ( dx,   0),
-                QtCore.Qt.Key.Key_Up:    (  0,  dy),
-                QtCore.Qt.Key.Key_Down:  (  0, -dy),
+                QtCore.Qt.Key.Key_Left: (-dx, 0),
+                QtCore.Qt.Key.Key_Right: (dx, 0),
+                QtCore.Qt.Key.Key_Up: (0, dy),
+                QtCore.Qt.Key.Key_Down: (0, -dy),
             }
             ox, oy = offsets[key]
             canvas.setExtent(QgsRectangle(
@@ -874,8 +864,18 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         right_label_2 = "" if is_area_mode else self.tr("Length Total (Horizontal Distance)")
         right_value_2 = "" if is_area_mode else (_fmt(sum_hd) + " m" if sum_hd else "")
         grid = [
-            (self.tr("Project Name"), pc.get("project_name", ""), self.tr("Surveyor"), pc.get("surveyor", "")),
-            (self.tr("Work Name"), pc.get("work_name", ""), self.tr("Measurement Date"), pc.get("measurement_date", "")),
+            (
+                self.tr("Project Name"),
+                pc.get("project_name", ""),
+                self.tr("Surveyor"),
+                pc.get("surveyor", ""),
+            ),
+            (
+                self.tr("Work Name"),
+                pc.get("work_name", ""),
+                self.tr("Measurement Date"),
+                pc.get("measurement_date", ""),
+            ),
             (self.tr("Fiscal Year"), pc.get("fiscal_year", ""), right_label_1, right_value_1),
             (self.tr("Operation Type"), pc.get("operation_type", ""), right_label_2, right_value_2),
         ]
@@ -1121,7 +1121,7 @@ def _plain_styled_layers(traverse_layers):
 
     _PT_SIZE = "1.3"
     _PT_UNIT = "MM"
-    _PT_OL   = "0.08"
+    _PT_OL = "0.08"
     _PT_OL_U = "MM"
 
     def _pt_sym(color):
@@ -1192,10 +1192,8 @@ def export_map_to_pdf(path, *, traverse_layer_ids, background_layer_name,
     Returns (success: bool, message: str).
     """
     try:
-        from qgis.PyQt.QtGui import (QPdfWriter, QPainter, QFont, QPen,
-                                     QPageSize, QPageLayout)
-        from qgis.PyQt.QtCore import QSizeF, QSize, QRect, QMarginsF, Qt
-        from qgis.core import QgsMapSettings, QgsMapRendererCustomPainterJob
+        from qgis.PyQt.QtGui import QPdfWriter, QPainter, QPageSize, QPageLayout
+        from qgis.PyQt.QtCore import QSizeF, QRect, QMarginsF
     except ImportError as e:
         return False, f"PDF出力に必要なモジュールがありません: {e}"
 
@@ -1442,7 +1440,7 @@ def _draw_station_labels(painter, preview_points, extent, map_rect,
                          label_interval, mm_to_px):
     """Draw BP, every N-th point, and EP text labels on the map (dots handled by QGIS renderer)."""
     from qgis.PyQt.QtGui import QFont, QPen, QBrush, QColor, QPainterPath
-    from qgis.PyQt.QtCore import QRect, Qt
+    from qgis.PyQt.QtCore import Qt
 
     if not preview_points:
         return
@@ -1682,7 +1680,7 @@ def _draw_branch_lines(painter, block_entries, extent, map_rect):
 def _draw_branch_legend(painter, block_entries, map_rect, mm_to_px):
     """Draw branch legend in the lower-left corner of the map area."""
     from qgis.PyQt.QtGui import QFont, QPen, QBrush, QColor
-    from qgis.PyQt.QtCore import QRect, Qt
+    from qgis.PyQt.QtCore import QRect
 
     if not block_entries:
         return
@@ -1858,7 +1856,10 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
     )
     area_total_m2 = sum(_entry_area_m2(entry) for entry in area_entries)
     area_total_ha = sum(math.floor(_entry_area_m2(e) / 10000.0 * 100) / 100 for e in area_entries)
-    def _info_html(right_label_1, right_value_1, right_label_2="", right_value_2=""):
+
+    def _info_html(
+        right_label_1, right_value_1, right_label_2="", right_value_2=""
+    ):
         return f"""<table style="margin-bottom:6px;font-size:11px;width:100%">
 <tr>
   <th style="text-align:left;width:6em">事業名</th>
@@ -2062,7 +2063,6 @@ def _section_area_calc_html(*, observations, computation, project_name,
                      if ratio_val is not None and math.isfinite(ratio_val) else "")
         ratio_pct = f"{err_dist / perimeter * 100:.3f}%" if perimeter > 0 else ""
         area_m2 = computation.corrected_area() or 0.0
-        area_ha = area_m2 / 10000.0
 
         all_coords = [computation.start_coordinate] + [
             (leg.corrected_target_coordinate or leg.target_coordinate)
@@ -2099,7 +2099,7 @@ def _section_area_calc_html(*, observations, computation, project_name,
 </tr>
 <tr>
   <th style="text-align:left">測定日時</th><td colspan="3"></td>
-  <th>高度累計</th><td style="text-align:right">{_fmt_d(totals.get("sum_dz",0))}</td>
+  <th>高度累計</th><td style="text-align:right">{_fmt_d(totals.get("sum_dz", 0))}</td>
   <th>精度(%)</th><td style="text-align:right">{he(ratio_pct)}</td>
   <th>y最小値</th><td style="text-align:right">{_fmt_d(min(xs))}</td>
 </tr>
@@ -2649,13 +2649,30 @@ def _build_notebook_preview_sections(
         summary_rows = [(tr_label("Category"), name)]
         if kind == "branch" and excluded:
             summary_rows.append((tr_label("Handling"), tr_label("Excluded from calculation")))
-        if kind == "area" or (comp is not None and comp.latest_closure() is not None and kind != "branch"):
+        if (
+            kind == "area"
+            or (
+                comp is not None
+                and comp.latest_closure() is not None
+                and kind != "branch"
+            )
+        ):
             area_m2 = _entry_area_m2(entry)
             summary_rows.append((tr_label("Area"), f"{_fmt_d(area_m2, 4)} m²"))
             summary_rows.append((tr_label("Area (ha)"), _floor_ha_str(area_m2)))
         else:
-            summary_rows.append((tr_label("Slope Distance Total"), "" if excluded else f"{_fmt_d(_entry_sum_sd(entry))} m"))
-            summary_rows.append((tr_label("Horizontal Distance Total"), "" if excluded else f"{_fmt_d(_entry_sum_hd(entry))} m"))
+            summary_rows.append(
+                (
+                    tr_label("Slope Distance Total"),
+                    "" if excluded else f"{_fmt_d(_entry_sum_sd(entry))} m",
+                )
+            )
+            summary_rows.append(
+                (
+                    tr_label("Horizontal Distance Total"),
+                    "" if excluded else f"{_fmt_d(_entry_sum_hd(entry))} m",
+                )
+            )
 
         rows = []
         for obs in obs_list:
@@ -2681,7 +2698,11 @@ def _build_notebook_preview_sections(
                 obs.connect_to or "", obs.close_to or "",
                 " / ".join(part for part in note_parts if part),
             ])
-        if kind not in ("area",) and not ((comp is not None and comp.latest_closure() is not None and kind != "branch")):
+        if kind not in ("area",) and not (
+            comp is not None
+            and comp.latest_closure() is not None
+            and kind != "branch"
+        ):
             subtotal_note = name
             if excluded:
                 subtotal_note = f"{subtotal_note} / {tr_label('Excluded from calculation')}"

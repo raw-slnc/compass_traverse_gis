@@ -4,11 +4,12 @@
 import os
 import sys
 import math
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 
-from survey_model import (
+from survey_model import (  # noqa: E402
     Coordinate,
     DEFAULT_NOTEBOOK_COLUMNS,
     IMPORTABLE_NOTEBOOK_COLUMNS,
@@ -263,7 +264,7 @@ class SurveyModelTest(unittest.TestCase):
     def test_workspace_can_switch_projects(self):
         workspace = ProjectWorkspace(
             backend=StorageBackend.SQLITE,
-            path="/tmp/compass_projects.sqlite",
+            path=os.path.join(tempfile.gettempdir(), "compass_projects.sqlite"),
         )
         workspace.add_project(
             ProjectRecord(

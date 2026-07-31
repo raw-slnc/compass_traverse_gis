@@ -641,7 +641,7 @@ def detect_blocks(
                             force_branch: bool = False) -> SurveyBlock:
         has_close = any(observations[r].close_to for r in row_indices)
         any_branch_ov = any(overrides[r] == "branch" for r in row_indices)
-        any_route_ov  = any(overrides[r] == "route_override" for r in row_indices)
+        any_route_ov = any(overrides[r] == "route_override" for r in row_indices)
         if any_route_ov:
             kind = BlockKind.ROUTE
         elif any_branch_ov:
@@ -854,7 +854,7 @@ def seq_index_map(
                 break
             obs = observations[r]
             from_key = normalize_station_label(obs.from_station)
-            tgt_key  = normalize_station_label(obs.target_station)
+            tgt_key = normalize_station_label(obs.target_station)
             if from_key not in result:
                 result[from_key] = seq
                 seq += 1
@@ -918,7 +918,6 @@ def compute_traverse(
         closure_reference_key = ""
         closure_reference_label = ""
         close_to_ref = observation.close_to_ref()
-        target_key = observation.target_ref().key
         if close_to_ref is not None:
             closure_reference_key = close_to_ref.key
             closure_reference_label = close_to_ref.raw
@@ -984,7 +983,6 @@ def apply_bowditch_correction(computation: TraverseComputation) -> TraverseCompu
     if closure is None:
         return computation
 
-    span_legs = computation.leg_results[: closure.leg_index + 1]
     span_distance = computation.closure_span_distance(closure)
     if math.isclose(span_distance, 0.0, abs_tol=1e-12):
         return computation

@@ -597,6 +597,16 @@ class NotebookTableWidget(QtWidgets.QTableWidget):
 
     def restore_geo_values_snapshot(self, values):
         self._geo_values = dict(values or {})
+        for row_index in range(self.rowCount()):
+            for column_index in self._geo_columns:
+                latitude_text, longitude_text = self._geo_values.get(
+                    (row_index, column_index),
+                    ("", ""),
+                )
+                if latitude_text or longitude_text:
+                    self._set_cell_text(row_index, column_index, _tr("Set"))
+                else:
+                    self._set_cell_text(row_index, column_index, "")
 
     def _open_geo_dialog(self, row_index, column_index):
         latitude_text, longitude_text = self._geo_values.get((row_index, column_index), ("", ""))

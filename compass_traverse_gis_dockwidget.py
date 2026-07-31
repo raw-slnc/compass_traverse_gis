@@ -66,9 +66,7 @@ from .survey_model import (
     DistanceUnit,
     IMPORTABLE_NOTEBOOK_COLUMNS,
     InclinationUnit,
-    LabelMismatch,
     ProjectRecord,
-    SurveyBlock,
     SurveyObservation,
     UnitProfile,
     compute_traverse,
@@ -76,10 +74,21 @@ from .survey_model import (
     detect_blocks,
     detect_label_mismatches,
     normalize_station_label,
-    seq_index_map,
     western_year_to_japanese_era,
 )
-from .workspace_store import load_workspace_state, save_workspace_state
+from .workspace_store import (
+    delete_project,
+    delete_work,
+    list_projects,
+    list_works,
+    load_work_snapshot,
+    load_workspace_state,
+    rename_project,
+    rename_work,
+    save_project_entry,
+    save_work_snapshot,
+    save_workspace_state,
+)
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'compass_traverse_gis_dockwidget_base.ui'))
@@ -108,6 +117,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._station_reference_targets = {}
         self._adjusting_calculation_splitter = False
         self._linked_project_by_name = {}
+        self._projects = {}
         self._active_workspace_name = ""
         self._start_coordinate_defined = False
         self._preview_layer_ids = []
@@ -122,6 +132,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._updating_station_references = False
         self._station_name_cache = {}
         self._mismatch_source_lines: list = []
+        self._output_blocking_mismatch_source_lines: list = []
         self._acknowledged_mismatch_source_lines: set = set()
         self._acknowledged_active_source_lines: set = set()
         self._year_display_mode = 0  # 0=西暦 1=和暦（日本語モード時のみ有効）
@@ -146,12 +157,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             | QtWidgets.QAbstractItemView.EditTrigger.AnyKeyPressed
         )
         self._project_record = ProjectRecord(
-            project_id="worksite_a",
-            project_name=self.tr("Worksite A"),
-            business_name=self.tr("Area Survey"),
-            year_reference_date="2026-04-01",
-            fiscal_year_start="4/1",
-            operation_type=self.tr("Thinning"),
+            project_id="",
+            project_name="",
+            business_name="",
         )
         self._workspace_loaded = False
         self._init_layout()
@@ -277,16 +285,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.workspacePathValueLabel.setMaximumWidth(medium_edit_width + 80)
 
     def _init_project_panel(self):
-        self.workspaceProjectCombo.addItems([self.tr("Worksite A")])
         self.projectSelectorCombo.addItems(
             [
-                self.tr("Area Survey"),
                 self.tr("Add New Work..."),
                 self.tr("Delete Work..."),
             ]
         )
-        self.workspaceProjectCombo.setCurrentIndex(0)
-        self.projectSelectorCombo.setCurrentIndex(0)
         self._workspace_project_previous_text = self.workspaceProjectCombo.currentText().strip()
         self._project_selector_previous_text = self.projectSelectorCombo.currentText().strip()
         self.workspaceProjectCombo.currentTextChanged.connect(self._sync_workspace_project_from_combo)
@@ -415,12 +419,43 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if m.source_line not in self._acknowledged_mismatch_source_lines
         ]
         self._mismatch_source_lines = [m.source_line for m in active]
+        self._output_blocking_mismatch_source_lines = list(self._mismatch_source_lines)
         self._acknowledged_active_source_lines = (
             all_source_lines & self._acknowledged_mismatch_source_lines
         )
         self._apply_row_kind_colors()
         self._update_mismatch_status_label()
+        self._update_output_actions_state()
         return active
+
+    def _has_output_blocking_mismatches(self):
+        return bool(self._output_blocking_mismatch_source_lines)
+
+    def _output_blocking_mismatch_message(self):
+        if not self._output_blocking_mismatch_source_lines:
+            return self.tr("Output is available.")
+        lines_text = ", ".join(
+            str(source_line)
+            for source_line in self._output_blocking_mismatch_source_lines
+        )
+        return self.tr(
+            "Output is disabled because station label mismatches exist (rows: {})."
+        ).format(lines_text)
+
+    def _update_output_actions_state(self):
+        outputs_enabled = (
+            not self._project_record.is_complete
+            and not self._has_output_blocking_mismatches()
+        )
+        tooltip = ""
+        if not outputs_enabled and self._has_output_blocking_mismatches():
+            tooltip = self._output_blocking_mismatch_message()
+        for widget in (
+            self.exportButton,
+            self.notebookExportButton,
+        ):
+            widget.setEnabled(outputs_enabled)
+            widget.setToolTip(tooltip)
 
     def _update_mismatch_status_label(self):
         lines = self._mismatch_source_lines
@@ -509,6 +544,13 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         QDesktopServices.openUrl(url)
 
     def _open_export_settings(self):
+        if self._has_output_blocking_mismatches():
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export"),
+                self._output_blocking_mismatch_message(),
+            )
+            return
         observations, notes = self._collect_observations_from_table()
         if not observations:
             QtWidgets.QMessageBox.information(
@@ -574,11 +616,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 "block_name": self._block_display_name(observations[0].block_id if observations else ""),
             }])
 
-        closing_targets = {
-            normalize_station_label(leg.target_station)
-            for leg in computation.leg_results
-            if leg.closure_station
-        }
         # Build preview_points with per-leg position-based seq_index.
         # Station names are treated as labels only; the seq counter resets
         # per block and increments once per leg regardless of station name.
@@ -777,7 +814,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def _handle_observation_cell_double_click(self, row_index, column_index):
         if self._project_record.is_complete:
             return
-        geo_col = DEFAULT_NOTEBOOK_COLUMNS.index("geo_point")
         if column_index not in (2, 3):
             return
         self._choose_station_reference(row_index, column_index)
@@ -785,45 +821,49 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def _populate_observation_table(self, rows, mapping):
         self._station_reference_targets.clear()
         saved_geo = self.observationTable.geo_values_snapshot()
-        self.observationTable.clear_geo_values()
-        row_count = max(12, len(rows))
-        self.observationTable.setRowCount(row_count)
+        self.observationTable.blockSignals(True)
+        try:
+            self.observationTable.clear_geo_values()
+            row_count = max(12, len(rows))
+            self.observationTable.setRowCount(row_count)
 
-        for row_index in range(row_count):
-            for column_index in range(len(DEFAULT_NOTEBOOK_COLUMNS)):
-                self._set_table_cell_text(row_index, column_index, "")
+            for row_index in range(row_count):
+                for column_index in range(len(DEFAULT_NOTEBOOK_COLUMNS)):
+                    self._set_table_cell_text(row_index, column_index, "")
 
-        geo_col = DEFAULT_NOTEBOOK_COLUMNS.index("geo_point")
-        rows_with_imported_geo = set()
-        for row_index, row_values in enumerate(rows):
-            for table_column, field_name in enumerate(DEFAULT_NOTEBOOK_COLUMNS):
-                if field_name in ("geo_point", "delta_x", "delta_y"):
-                    continue
-                source_index = mapping.get(field_name)
-                if source_index is None or source_index >= len(row_values):
-                    continue
-                value = str(row_values[source_index]).strip()
-                if value.lower() == "nan":
-                    value = ""
-                self._set_table_cell_text(row_index, table_column, value)
+            geo_col = DEFAULT_NOTEBOOK_COLUMNS.index("geo_point")
+            rows_with_imported_geo = set()
+            for row_index, row_values in enumerate(rows):
+                for table_column, field_name in enumerate(DEFAULT_NOTEBOOK_COLUMNS):
+                    if field_name in ("geo_point", "delta_x", "delta_y"):
+                        continue
+                    source_index = mapping.get(field_name)
+                    if source_index is None or source_index >= len(row_values):
+                        continue
+                    value = str(row_values[source_index]).strip()
+                    if value.lower() == "nan":
+                        value = ""
+                    self._set_table_cell_text(row_index, table_column, value)
 
-            latitude_index = mapping.get("latitude_dms")
-            longitude_index = mapping.get("longitude_dms")
-            latitude_value = ""
-            longitude_value = ""
-            if latitude_index is not None and latitude_index < len(row_values):
-                latitude_value = str(row_values[latitude_index]).strip()
-            if longitude_index is not None and longitude_index < len(row_values):
-                longitude_value = str(row_values[longitude_index]).strip()
-            if latitude_value or longitude_value:
-                rows_with_imported_geo.add(row_index)
-            self.observationTable.set_geo_value(
-                row_index, geo_col, latitude_value, longitude_value,
-            )
+                latitude_index = mapping.get("latitude_dms")
+                longitude_index = mapping.get("longitude_dms")
+                latitude_value = ""
+                longitude_value = ""
+                if latitude_index is not None and latitude_index < len(row_values):
+                    latitude_value = str(row_values[latitude_index]).strip()
+                if longitude_index is not None and longitude_index < len(row_values):
+                    longitude_value = str(row_values[longitude_index]).strip()
+                if latitude_value or longitude_value:
+                    rows_with_imported_geo.add(row_index)
+                self.observationTable.set_geo_value(
+                    row_index, geo_col, latitude_value, longitude_value,
+                )
 
-        for (saved_row, saved_col), geo_val in saved_geo.items():
-            if saved_row < row_count and saved_row not in rows_with_imported_geo:
-                self.observationTable.set_geo_value(saved_row, saved_col, *geo_val)
+            for (saved_row, saved_col), geo_val in saved_geo.items():
+                if saved_row < row_count and saved_row not in rows_with_imported_geo:
+                    self.observationTable.set_geo_value(saved_row, saved_col, *geo_val)
+        finally:
+            self.observationTable.blockSignals(False)
 
         self._rebuild_station_reference_targets_from_table()
         self._refresh_station_name_cache()
@@ -1321,7 +1361,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     blk.manual_name = self._block_manual_names[blk.block_id]
             if update_blocks:
                 self._detected_blocks = {blk.block_id: blk for blk in blocks}
-            block_kind_by_id = {blk.block_id: blk.kind for blk in blocks}
             for obs, bid in zip(observations, block_id_per_obs):
                 obs.block_id = bid
 
@@ -1804,6 +1843,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if not value:
                 self._populate_project_table()
                 return
+            old_project_name = self._project_record.project_name
+            if value != old_project_name:
+                if not self._rename_project(old_project_name, value):
+                    return
             self._project_record.project_name = value
             self._rebuild_project_and_work_selectors(
                 active_project=value,
@@ -1839,6 +1882,37 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         )
         self._refresh_workspace_status()
 
+    def _rename_project(self, old_name, new_name):
+        if not old_name or not new_name or old_name == new_name:
+            return True
+
+        if new_name in self._available_project_names() and new_name != old_name:
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("Project Name"),
+                self.tr("The same project name already exists."),
+            )
+            self._populate_project_table()
+            return False
+
+        workspace_path = self._current_workspace_path()
+        old_work_names = self._available_work_names(old_name)
+        if workspace_path is not None:
+            rename_project(workspace_path, old_name, new_name)
+
+        key_mapping = {
+            self._compose_snapshot_key(old_name, work_name): self._compose_snapshot_key(new_name, work_name)
+            for work_name in old_work_names
+        }
+        renamed_links = {}
+        for source_name, target_name in self._linked_project_by_name.items():
+            mapped_source = key_mapping.get(source_name, source_name)
+            mapped_target = key_mapping.get(target_name, target_name)
+            renamed_links[mapped_source] = mapped_target
+        self._linked_project_by_name = renamed_links
+        self._workspace_project_previous_text = new_name
+        return True
+
     def _rename_work(self, old_name, new_name):
         if not old_name or not new_name or old_name == new_name:
             return True
@@ -1846,7 +1920,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         current_project_name = self._project_record.project_name.strip()
         new_key = self._find_snapshot_key(current_project_name, new_name)
         old_key = self._find_snapshot_key(current_project_name, old_name)
-        if new_key in self._project_snapshots and new_key != old_key:
+        if new_name in self._available_work_names(current_project_name) and new_name != old_name:
             QtWidgets.QMessageBox.information(
                 self,
                 self.tr("Work Name"),
@@ -1855,16 +1929,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._populate_project_table()
             return False
 
-        if old_key in self._project_snapshots:
-            snapshot = self._project_snapshots.pop(old_key)
-        else:
-            snapshot = self._build_project_snapshot(old_key)
-        snapshot["work_name"] = new_name
-        record_data = snapshot.get("project_record", {})
-        if record_data:
-            record_data["business_name"] = new_name
-            record_data["project_name"] = current_project_name
-        self._project_snapshots[new_key] = snapshot
+        workspace_path = self._current_workspace_path()
+        if workspace_path is not None:
+            rename_work(workspace_path, current_project_name, old_name, new_name)
 
         renamed_links = {}
         for source_name, target_name in self._linked_project_by_name.items():
@@ -1890,31 +1957,120 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         normalized = str(value or "").strip().lower()
         return normalized in ("1", "true", "yes", "on", "complete", "完了")
 
+    def _project_id_for_name(self, project_name):
+        return str(project_name or "").strip()
+
+    def _project_entry(self, project_name):
+        project_id = self._project_id_for_name(project_name)
+        return self._projects.get(project_id)
+
+    def _ensure_project_entry(self, project_name):
+        project_id = self._project_id_for_name(project_name)
+        if not project_id:
+            return ""
+        workspace_path = self._current_workspace_path()
+        if workspace_path is not None:
+            save_project_entry(workspace_path, project_id)
+        return project_id
+
+    def _snapshot_project_name(self, snapshot, fallback=""):
+        record_data = snapshot.get("project_record", {})
+        return str(
+            snapshot.get("project_id")
+            or record_data.get("project_name")
+            or snapshot.get("project_name")
+            or fallback
+        ).strip()
+
+    def _snapshot_work_name(self, snapshot, fallback=""):
+        record_data = snapshot.get("project_record", {})
+        return str(
+            record_data.get("business_name")
+            or snapshot.get("work_name")
+            or fallback
+        ).strip()
+
     def _default_new_work_name(self):
         return self.tr("New Work Record")
+
+    def _clear_active_work_state(self):
+        self._loading_project_state = True
+        try:
+            self._project_record = ProjectRecord(
+                project_id="",
+                project_name=self.workspaceProjectCombo.currentText().strip(),
+                business_name="",
+            )
+            self._block_manual_names = {}
+            self._detected_blocks = {}
+            self._station_reference_targets = {}
+            self._acknowledged_mismatch_source_lines = set()
+            self._mismatch_source_lines = []
+            self._output_blocking_mismatch_source_lines = []
+            self._current_dirty = False
+            self.distanceUnitCombo.setCurrentText("m")
+            self.inclinationUnitCombo.setCurrentText("deg")
+            self.magneticDeclinationSpin.setValue(0.0)
+            self.startStationEdit.setText("")
+            self.startXSpin.setValue(0.0)
+            self.startYSpin.setValue(0.0)
+            self._start_coordinate_defined = False
+            self.closureEnabledCheck.setChecked(True)
+            self.notebookAppendExistingLayerCheck.setChecked(False)
+            self.blockNameCombo.blockSignals(True)
+            self.blockNameCombo.clear()
+            self.blockNameCombo.blockSignals(False)
+            self._restore_table_snapshot([])
+            self.observationTable.clear_geo_values()
+            self._row_kinds = []
+            self._restore_summary_snapshot({"mode": "area", "values": []})
+        finally:
+            self._loading_project_state = False
+        self._refresh_station_name_cache()
+        self._refresh_auto_row_kinds()
+        self._update_mismatch_status_label()
+        self._update_output_actions_state()
+        self._clear_preview_layers()
+        self._apply_project_editability()
+        self.notebookHintLabel.setText(
+            self.tr("No work is selected. Add a work record to start entering survey data.")
+        )
 
     def _compose_snapshot_key(self, project_name, work_name):
         return f"{project_name.strip()}\t{work_name.strip()}"
 
     def _normalize_snapshot_keys(self):
+        normalized_projects = {}
         normalized_snapshots = {}
         key_mapping = {}
         for old_key, snapshot in list(self._project_snapshots.items()):
-            record_data = snapshot.get("project_record", {})
-            project_name = str(
-                record_data.get("project_name")
-                or snapshot.get("project_name")
-                or self._project_record.project_name
-            ).strip()
-            work_name = str(
-                record_data.get("business_name")
-                or snapshot.get("work_name")
-                or old_key
-            ).strip()
+            project_name = self._snapshot_project_name(
+                snapshot,
+                self._project_record.project_name,
+            )
+            work_name = self._snapshot_work_name(snapshot, old_key)
+            project_id = self._project_id_for_name(project_name)
             new_key = self._compose_snapshot_key(project_name, work_name)
-            normalized_snapshots[new_key] = snapshot
+            normalized_snapshot = dict(snapshot)
+            normalized_snapshot["project_id"] = project_id
+            normalized_snapshot["project_name"] = project_name
+            normalized_snapshot["work_id"] = new_key
+            normalized_snapshot["work_name"] = work_name
+            record_data = dict(normalized_snapshot.get("project_record", {}))
+            if record_data:
+                record_data["project_name"] = project_name
+                record_data["business_name"] = work_name
+            normalized_snapshot["project_record"] = record_data
+            normalized_snapshots[new_key] = normalized_snapshot
+            if project_id:
+                normalized_projects[project_id] = {
+                    "project_id": project_id,
+                    "project_name": project_name,
+                }
             key_mapping[old_key] = new_key
         self._project_snapshots = normalized_snapshots
+        if normalized_projects:
+            self._projects = normalized_projects
         self._linked_project_by_name = {
             key_mapping.get(source, source): key_mapping.get(target, target)
             for source, target in self._linked_project_by_name.items()
@@ -1922,56 +2078,50 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _available_project_names(self):
         names = []
+        workspace_path = self._current_workspace_path()
+        if workspace_path is not None and workspace_path.exists():
+            names = [
+                str(project_data.get("project_name", "")).strip()
+                for project_data in list_projects(workspace_path)
+                if str(project_data.get("project_name", "")).strip()
+            ]
         current_name = self._project_record.project_name.strip()
-        for snapshot in reversed(list(self._project_snapshots.values())):
-            record_data = snapshot.get("project_record", {})
-            name = str(record_data.get("project_name", "")).strip()
-            if name and name not in names:
-                names.append(name)
-        if current_name and current_name not in names:
+        current_has_snapshot = False
+        if current_name:
+            current_has_snapshot = bool(self._available_work_names(current_name))
+        if current_name and current_name not in names and current_has_snapshot:
             names.append(current_name)
-        return names or [self.tr("Worksite A")]
+        return names
 
     def _available_work_names(self, project_name):
         names = []
         current_project = self._project_record.project_name.strip()
         current_work = self._project_record.business_name.strip()
-        for work_name, snapshot in reversed(list(self._project_snapshots.items())):
-            record_data = snapshot.get("project_record", {})
-            snapshot_project = str(record_data.get("project_name", "")).strip()
-            if snapshot_project != project_name:
-                continue
-            display_work = str(
-                record_data.get("business_name")
-                or snapshot.get("work_name")
-                or work_name
-            ).strip()
-            if display_work and display_work not in names:
-                names.append(display_work)
-        if current_project == project_name and current_work and current_work not in names:
+        workspace_path = self._current_workspace_path()
+        if workspace_path is not None and workspace_path.exists():
+            names = [
+                str(work_data.get("work_name", "")).strip()
+                for work_data in list_works(workspace_path, project_name)
+                if str(work_data.get("work_name", "")).strip()
+            ]
+        current_has_snapshot = current_work in names
+        if (
+            current_project == project_name
+            and current_work
+            and current_work not in names
+            and current_has_snapshot
+        ):
             names.append(current_work)
-        return names or [self._default_new_work_name()]
+        return names
 
     def _find_snapshot_key(self, project_name, work_name):
-        normalized_project = project_name.strip()
-        normalized_work = work_name.strip()
-        for key, snapshot in self._project_snapshots.items():
-            record_data = snapshot.get("project_record", {})
-            snapshot_project = str(record_data.get("project_name", "")).strip()
-            snapshot_work = str(
-                record_data.get("business_name")
-                or snapshot.get("work_name")
-                or key
-            ).strip()
-            if snapshot_project == normalized_project and snapshot_work == normalized_work:
-                return key
-        return self._compose_snapshot_key(normalized_project, normalized_work)
+        return self._compose_snapshot_key(project_name.strip(), work_name.strip())
 
     def _rebuild_project_and_work_selectors(self, active_project=None, active_work=None):
-        active_project = (active_project or self._project_record.project_name or self.tr("Worksite A")).strip()
-        active_work = (active_work or self._project_record.business_name or self._default_new_work_name()).strip()
+        active_project = (active_project or self._project_record.project_name).strip()
+        active_work = (active_work or self._project_record.business_name).strip()
         project_names = self._available_project_names()
-        if active_project not in project_names:
+        if active_project and active_project not in project_names:
             project_names.append(active_project)
         work_names = self._available_work_names(active_project)
         if active_work and active_work not in work_names:
@@ -1984,19 +2134,25 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.workspaceProjectCombo.addItems(project_names)
             self.workspaceProjectCombo.addItem(self.tr("Add New Project..."))
             self.workspaceProjectCombo.addItem(self.tr("Delete Project..."))
-            self.workspaceProjectCombo.setCurrentText(active_project)
+            if active_project:
+                self.workspaceProjectCombo.setCurrentText(active_project)
+            elif project_names:
+                self.workspaceProjectCombo.setCurrentText(project_names[0])
 
             self.projectSelectorCombo.clear()
             self.projectSelectorCombo.addItems(work_names)
             self.projectSelectorCombo.addItem(self.tr("Add New Work..."))
             self.projectSelectorCombo.addItem(self.tr("Delete Work..."))
-            self.projectSelectorCombo.setCurrentText(active_work)
+            if active_work:
+                self.projectSelectorCombo.setCurrentText(active_work)
+            elif work_names:
+                self.projectSelectorCombo.setCurrentText(work_names[0])
         finally:
             self.workspaceProjectCombo.blockSignals(False)
             self.projectSelectorCombo.blockSignals(False)
 
-        self._workspace_project_previous_text = active_project
-        self._project_selector_previous_text = active_work
+        self._workspace_project_previous_text = self.workspaceProjectCombo.currentText().strip()
+        self._project_selector_previous_text = self.projectSelectorCombo.currentText().strip()
 
     def _handle_project_table_cell_double_clicked(self, row_index, column_index):
         if self._loading_project_state:
@@ -2087,16 +2243,36 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._save_current_project_state(previous_key)
 
         work_names = self._available_work_names(selected_project)
-        selected_work = work_names[0] if work_names else self._default_new_work_name()
+        selected_work = work_names[0] if work_names else ""
         self._rebuild_project_and_work_selectors(
             active_project=selected_project,
             active_work=selected_work,
         )
-        snapshot_key = self._find_snapshot_key(selected_project, selected_work)
         self._project_record.project_name = selected_project
         self._project_record.business_name = selected_work
+        if selected_work:
+            snapshot_key = self._find_snapshot_key(selected_project, selected_work)
+            self._ensure_project_snapshot(snapshot_key)
+            self._load_project_state(snapshot_key)
+            self._populate_project_table()
+            self._refresh_workspace_status()
+        else:
+            self._workspace_project_previous_text = selected_project
+            self._project_selector_previous_text = ""
+            self._clear_active_work_state()
+
+    def _activate_project_and_work(self, project_name, work_name):
+        snapshot_key = self._find_snapshot_key(project_name, work_name)
+        self._project_record.project_name = project_name
+        self._project_record.business_name = work_name
+        self._rebuild_project_and_work_selectors(
+            active_project=project_name,
+            active_work=work_name,
+        )
         self._ensure_project_snapshot(snapshot_key)
         self._load_project_state(snapshot_key)
+        self._workspace_project_previous_text = project_name
+        self._project_selector_previous_text = work_name
         self._populate_project_table()
         self._refresh_workspace_status()
 
@@ -2177,6 +2353,61 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             restored[project_name] = restored_snapshot
         return restored
 
+    def _serialize_projects(self):
+        return {
+            project_id: dict(project_data)
+            for project_id, project_data in self._projects.items()
+        }
+
+    def _deserialize_projects(self, projects):
+        restored = {}
+        for project_id, project_data in (projects or {}).items():
+            restored[str(project_id).strip()] = dict(project_data or {})
+        return restored
+
+    def _migrate_legacy_workspace_state(self, state):
+        legacy_snapshots = self._deserialize_workspace_snapshots(
+            state.get("project_snapshots", {})
+        )
+        legacy_links = dict(state.get("linked_project_by_name", {}))
+        active_work_id = str(state.get("active_project_name", "")).strip()
+        projects = {}
+        works = {}
+
+        for old_key, snapshot in legacy_snapshots.items():
+            project_name = self._snapshot_project_name(
+                snapshot,
+                self._project_record.project_name,
+            )
+            work_name = self._snapshot_work_name(snapshot, old_key)
+            project_id = self._project_id_for_name(project_name)
+            work_id = self._compose_snapshot_key(project_name, work_name)
+            updated_snapshot = dict(snapshot)
+            updated_snapshot["project_id"] = project_id
+            updated_snapshot["project_name"] = project_name
+            updated_snapshot["work_id"] = work_id
+            updated_snapshot["work_name"] = work_name
+            record_data = dict(updated_snapshot.get("project_record", {}))
+            if record_data:
+                record_data["project_name"] = project_name
+                record_data["business_name"] = work_name
+            updated_snapshot["project_record"] = record_data
+            projects[project_id] = {
+                "project_id": project_id,
+                "project_name": project_name,
+            }
+            works[work_id] = updated_snapshot
+            if active_work_id == old_key:
+                active_work_id = work_id
+
+        return {
+            "projects": projects,
+            "works": works,
+            "linked_project_by_name": legacy_links,
+            "active_work_id": active_work_id,
+            "active_workspace_name": state.get("active_workspace_name", ""),
+        }
+
     def _persist_workspace_state(self):
         workspace_path = self._current_workspace_path()
         if workspace_path is None:
@@ -2184,9 +2415,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if not self._workspace_loaded:
             return
         state = {
-            "project_snapshots": self._serialize_workspace_snapshots(),
             "linked_project_by_name": self._linked_project_by_name,
-            "active_project_name": self._current_project_name(),
+            "active_work_id": self._current_project_name(),
             "active_workspace_name": self._active_workspace_name,
         }
         save_workspace_state(workspace_path, state)
@@ -2196,45 +2426,42 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if workspace_path is None:
             return
         state = load_workspace_state(workspace_path)
-        if not state:
+        project_names = self._available_project_names() if workspace_path.exists() else []
+        if not state and not project_names:
             if not workspace_path.exists():
                 self._persist_workspace_state()
             self._workspace_loaded = True
             self._refresh_workspace_status()
             return
 
-        self._project_snapshots = self._deserialize_workspace_snapshots(
-            state.get("project_snapshots", {})
-        )
         self._linked_project_by_name = dict(state.get("linked_project_by_name", {}))
-        self._normalize_snapshot_keys()
         self._active_workspace_name = state.get("active_workspace_name", "")
 
-        active_work_key = state.get("active_project_name", "")
-        active_snapshot = self._project_snapshots.get(active_work_key, {})
-        active_record = active_snapshot.get("project_record", {})
-        active_project_name = str(
-            active_record.get("project_name") or self._project_record.project_name
-        ).strip() or self.tr("Worksite A")
-        active_work_name = str(
-            active_record.get("business_name")
-            or active_snapshot.get("work_name")
-            or self._project_record.business_name
-        ).strip() or self._default_new_work_name()
+        active_work_key = state.get("active_work_id", "")
+        if "\t" in active_work_key:
+            active_project_name, active_work_name = active_work_key.split("\t", 1)
+        else:
+            active_project_name = project_names[0] if project_names else ""
+            works = self._available_work_names(active_project_name)
+            active_work_name = works[0] if works else ""
 
         self._rebuild_project_and_work_selectors(
             active_project=active_project_name,
             active_work=active_work_name,
         )
 
-        snapshot_key = self._find_snapshot_key(active_project_name, active_work_name)
-        self._ensure_project_snapshot(snapshot_key)
-        self._load_project_state(snapshot_key)
+        if active_project_name and active_work_name:
+            snapshot_key = self._find_snapshot_key(active_project_name, active_work_name)
+            self._ensure_project_snapshot(snapshot_key)
+            self._load_project_state(snapshot_key)
+        else:
+            self._clear_active_work_state()
         self._workspace_loaded = True
         self._refresh_workspace_status()
 
     def _on_qgis_project_read(self):
         self._workspace_loaded = False
+        self._projects = {}
         self._project_snapshots = {}
         self._linked_project_by_name = {}
         self._load_workspace_state_from_db()
@@ -2460,7 +2687,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return Coordinate(start_x, start_y), ""
 
     def _active_geo_anchor(self, observations):
-        geo_column = DEFAULT_NOTEBOOK_COLUMNS.index("geo_point")
         geo_values = self.observationTable.geo_values_snapshot()
         return self._active_geo_anchor_from_values(observations, geo_values)
 
@@ -2531,15 +2757,28 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def _ensure_project_snapshot(self, project_name):
         if not project_name:
             return
-        self._project_snapshots.setdefault(
-            project_name,
-            self._build_project_snapshot(project_name),
-        )
+        project_display_name = str(project_name).split("\t", 1)[0].strip()
+        self._ensure_project_entry(project_display_name)
+        workspace_path = self._current_workspace_path()
+        if workspace_path is None:
+            return
+        work_name = str(project_name).split("\t", 1)[1].strip() if "\t" in str(project_name) else ""
+        if not load_work_snapshot(workspace_path, project_display_name, work_name):
+            save_work_snapshot(
+                workspace_path,
+                project_display_name,
+                work_name,
+                self._create_empty_project_snapshot(project_display_name, work_name),
+            )
 
     def _create_empty_project_snapshot(self, project_name, work_name):
         empty_row_count = 12
+        project_id = self._ensure_project_entry(project_name)
+        work_id = self._compose_snapshot_key(project_name, work_name)
         return {
+            "project_id": project_id,
             "project_name": project_name,
+            "work_id": work_id,
             "work_name": work_name,
             "distance_unit": self.distanceUnitCombo.currentText(),
             "inclination_unit": self.inclinationUnitCombo.currentText(),
@@ -2567,9 +2806,15 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         }
 
     def _build_project_snapshot(self, project_name):
+        project_display_name = self._project_record.project_name
+        work_name = self._project_record.business_name
+        project_id = self._ensure_project_entry(project_display_name)
+        work_id = self._compose_snapshot_key(project_display_name, work_name)
         return {
-            "project_name": self._project_record.project_name,
-            "work_name": self._project_record.business_name,
+            "project_id": project_id,
+            "project_name": project_display_name,
+            "work_id": work_id,
+            "work_name": work_name,
             "distance_unit": self.distanceUnitCombo.currentText(),
             "inclination_unit": self.inclinationUnitCombo.currentText(),
             "magnetic_declination": self.magneticDeclinationSpin.value(),
@@ -2607,14 +2852,34 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         name = project_name or self._current_project_name()
         if not name:
             return
-        self._project_snapshots[name] = self._build_project_snapshot(name)
+        workspace_path = self._current_workspace_path()
+        if workspace_path is None:
+            return
+        project_name_text, work_name_text = name.split("\t", 1)
+        save_work_snapshot(
+            workspace_path,
+            project_name_text,
+            work_name_text,
+            self._build_project_snapshot(name),
+        )
         self._persist_workspace_state()
 
     def _load_project_state(self, project_name):
-        snapshot = self._project_snapshots.get(project_name)
+        workspace_path = self._current_workspace_path()
+        snapshot = None
+        if workspace_path is not None and "\t" in str(project_name):
+            project_display_name, work_name = str(project_name).split("\t", 1)
+            snapshot = load_work_snapshot(workspace_path, project_display_name, work_name)
         if snapshot is None:
-            snapshot = self._build_project_snapshot(project_name)
-            self._project_snapshots[project_name] = snapshot
+            snapshot = self._create_empty_project_snapshot(
+                str(project_name).split("\t", 1)[0],
+                str(project_name).split("\t", 1)[1] if "\t" in str(project_name) else self._default_new_work_name(),
+            )
+        project_display_name = self._snapshot_project_name(
+            snapshot,
+            self.workspaceProjectCombo.currentText().strip() or self.tr("Worksite A"),
+        )
+        self._ensure_project_entry(project_display_name)
         self._loading_project_state = True
         try:
             self.distanceUnitCombo.setCurrentText(snapshot.get("distance_unit", "m"))
@@ -2644,11 +2909,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             record_data = snapshot.get("project_record", {})
             self._project_record = ProjectRecord(**record_data) if record_data else ProjectRecord(
                 project_id=project_name.lower().replace(" ", "_"),
-                project_name=self.workspaceProjectCombo.currentText().strip() or self.tr("Worksite A"),
-                business_name=snapshot.get("work_name", project_name),
+                project_name=project_display_name,
+                business_name=self._snapshot_work_name(snapshot, project_name),
             )
             if not self._project_record.business_name:
-                self._project_record.business_name = snapshot.get("work_name", project_name)
+                self._project_record.business_name = self._snapshot_work_name(snapshot, project_name)
+            self._project_record.project_name = project_display_name
             self._current_dirty = snapshot.get("is_dirty", True)
             self._restore_summary_snapshot(snapshot.get("summary_values", []))
             self._populate_project_table()
@@ -2656,6 +2922,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._loading_project_state = False
         self._normalize_geo_assignments()
         self._refresh_auto_row_kinds()
+        self._refresh_mismatch_state()
         self._refresh_block_name_combo()
         self._clear_preview_layers()
         self._apply_project_editability()
@@ -2731,7 +2998,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return
         self.notebookHintLabel.setText(
             self.tr(
-                "Blank rows are allowed as visual separators. Double-click Connect To and Close To to choose a station reference, and double-click the Geo column to enter latitude/longitude."
+                "Blank rows are allowed as visual separators. Double-click "
+                "Connect To and Close To to choose a station reference, and "
+                "double-click the Geo column to enter latitude/longitude."
             )
         )
 
@@ -2759,6 +3028,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.renameBlockNameButton,
         ):
             widget.setEnabled(not complete)
+        self._update_output_actions_state()
 
     def _create_project_from_selector(self):
         new_name, accepted = QtWidgets.QInputDialog.getText(
@@ -2788,10 +3058,14 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             previous_key = self._find_snapshot_key(previous_project_name, previous_work_name)
             self._save_current_project_state(previous_key)
         snapshot_key = self._find_snapshot_key(previous_project_name, normalized)
-        self._project_snapshots[snapshot_key] = self._create_empty_project_snapshot(
-            previous_project_name,
-            normalized,
-        )
+        workspace_path = self._current_workspace_path()
+        if workspace_path is not None:
+            save_work_snapshot(
+                workspace_path,
+                previous_project_name,
+                normalized,
+                self._create_empty_project_snapshot(previous_project_name, normalized),
+            )
         self.projectSelectorCombo.blockSignals(True)
         try:
             self.projectSelectorCombo.setCurrentText(normalized)
@@ -2839,21 +3113,16 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if previous_project_name and previous_work_name:
             previous_key = self._find_snapshot_key(previous_project_name, previous_work_name)
             self._save_current_project_state(previous_key)
-        default_work_name = self._default_new_work_name()
-        snapshot_key = self._find_snapshot_key(normalized, default_work_name)
-        self._project_snapshots[snapshot_key] = self._create_empty_project_snapshot(
-            normalized,
-            default_work_name,
-        )
+        self._ensure_project_entry(normalized)
         self._rebuild_project_and_work_selectors(
             active_project=normalized,
-            active_work=default_work_name,
+            active_work="",
         )
         self._project_record.project_name = normalized
-        self._project_record.business_name = default_work_name
+        self._project_record.business_name = ""
         self._workspace_project_previous_text = normalized
-        self._project_selector_previous_text = default_work_name
-        self._load_project_state(snapshot_key)
+        self._project_selector_previous_text = ""
+        self._clear_active_work_state()
         self._refresh_linked_project_candidates()
         self._refresh_workspace_status()
         self._persist_workspace_state()
@@ -2879,13 +3148,15 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return
 
         normalized = selected_name.strip()
-        keys_to_delete = []
-        for key, snapshot in self._project_snapshots.items():
-            record_data = snapshot.get("project_record", {})
-            if str(record_data.get("project_name", "")).strip() == normalized:
-                keys_to_delete.append(key)
+        deleting_current = self._project_record.project_name.strip() == normalized
+        workspace_path = self._current_workspace_path()
+        keys_to_delete = [
+            self._compose_snapshot_key(normalized, work_name)
+            for work_name in self._available_work_names(normalized)
+        ]
+        if workspace_path is not None:
+            delete_project(workspace_path, normalized)
         for key in keys_to_delete:
-            self._project_snapshots.pop(key, None)
             self._linked_project_by_name.pop(key, None)
         self._linked_project_by_name = {
             source: target
@@ -2893,26 +3164,33 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if target not in keys_to_delete
         }
 
+        if deleting_current:
+            self._project_record.project_name = ""
+            self._project_record.business_name = ""
+            self._workspace_project_previous_text = ""
+            self._project_selector_previous_text = ""
+
         remaining_projects = self._available_project_names()
         if not remaining_projects:
-            self._project_record.project_name = self.tr("Worksite A")
-            self._project_record.business_name = self._default_new_work_name()
-            empty_key = self._find_snapshot_key(
-                self._project_record.project_name,
-                self._project_record.business_name,
-            )
-            self._project_snapshots[empty_key] = self._create_empty_project_snapshot(
-                self._project_record.project_name,
-                self._project_record.business_name,
-            )
-            remaining_projects = self._available_project_names()
+            self._rebuild_project_and_work_selectors(active_project="", active_work="")
+            self._clear_active_work_state()
+            self._persist_workspace_state()
+            return
         next_project = remaining_projects[0]
-        next_work = self._available_work_names(next_project)[0]
-        self._rebuild_project_and_work_selectors(
-            active_project=next_project,
-            active_work=next_work,
-        )
-        self._sync_workspace_project_from_combo(next_project)
+        next_work_names = self._available_work_names(next_project)
+        next_work = next_work_names[0] if next_work_names else ""
+        if next_work:
+            self._activate_project_and_work(next_project, next_work)
+        else:
+            self._rebuild_project_and_work_selectors(
+                active_project=next_project,
+                active_work="",
+            )
+            self._project_record.project_name = next_project
+            self._project_record.business_name = ""
+            self._workspace_project_previous_text = next_project
+            self._project_selector_previous_text = ""
+            self._clear_active_work_state()
         self._persist_workspace_state()
 
     def _delete_work_from_selector(self):
@@ -2937,8 +3215,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return
 
         normalized = selected_name.strip()
+        deleting_current = self._project_record.business_name.strip() == normalized
         snapshot_key = self._find_snapshot_key(current_project, normalized)
-        self._project_snapshots.pop(snapshot_key, None)
+        workspace_path = self._current_workspace_path()
+        if workspace_path is not None:
+            delete_work(workspace_path, current_project, normalized)
         self._linked_project_by_name.pop(snapshot_key, None)
         self._linked_project_by_name = {
             source: target
@@ -2946,25 +3227,26 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if target != snapshot_key
         }
 
-        # Exclude the just-deleted name so _project_record.business_name (not yet
-        # updated) does not cause it to reappear in the available list.
-        remaining_works = [
-            w for w in self._available_work_names(current_project)
-            if w != normalized
-        ]
+        if deleting_current:
+            self._project_record.business_name = ""
+            self._project_selector_previous_text = ""
+
+        remaining_works = self._available_work_names(current_project)
         if not remaining_works:
-            remaining_works = [self._default_new_work_name()]
+            self._rebuild_project_and_work_selectors(
+                active_project=current_project,
+                active_work="",
+            )
+            self._project_record.project_name = current_project
+            self._project_record.business_name = ""
+            self._workspace_project_previous_text = current_project
+            self._project_selector_previous_text = ""
+            self._clear_active_work_state()
+            self._persist_workspace_state()
+            return
         next_work = remaining_works[0]
-        # Update _project_record before rebuild so _available_work_names no
-        # longer includes the deleted name via the live record.
-        if self._project_record.business_name.strip() == normalized:
-            self._project_record.business_name = next_work
-        self._ensure_project_snapshot(self._find_snapshot_key(current_project, next_work))
-        self._rebuild_project_and_work_selectors(
-            active_project=current_project,
-            active_work=next_work,
-        )
-        self._sync_project_name_from_combo(next_work)
+        self._project_record.business_name = next_work
+        self._activate_project_and_work(current_project, next_work)
         self._persist_workspace_state()
 
     def _start_coordinate_display_text(self):
@@ -2998,7 +3280,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             )
             if len(geo_rows) <= 1:
                 continue
-            keeper = geo_rows[0]
             for row_index in geo_rows[1:]:
                 rows_to_clear.append(row_index)
                 if source_row is not None and row_index == source_row:
@@ -3328,8 +3609,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         layer.updateExtents()
         return layer
 
-    def _create_preview_point_layer(self, computation, project_name, group,
-                                     observations=None):
+    def _create_preview_point_layer(
+        self, computation, project_name, group, observations=None
+    ):
         layer = self._build_point_layer(computation, project_name, observations)
         self._apply_point_layer_style(layer)
         self._add_layer_to_group(layer, group, visible=True)
@@ -3584,12 +3866,19 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     if parent is not root:
                         remove_if_empty(parent)
             except Exception:
-                pass
+                return
 
         for group in parent_groups:
             remove_if_empty(group)
 
     def _export_gpkg(self):
+        if self._has_output_blocking_mismatches():
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export GPKG"),
+                self._output_blocking_mismatch_message(),
+            )
+            return
         project_dir = self._project_directory()
         if project_dir is None:
             QtWidgets.QMessageBox.warning(
@@ -3738,9 +4027,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 if parent is not None:
                     parent.removeChildNode(self._preview_group_node)
             except Exception:
-                pass
+                self._preview_group_node = None
             self._preview_group_node = None
         self._preview_group_name = ""
+        if self.iface is not None and self.iface.mapCanvas() is not None:
+            self.iface.mapCanvas().refresh()
 
     def _toggle_floating_fullscreen(self):
         if not self.isFloating():

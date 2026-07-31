@@ -55,7 +55,7 @@ class CompassTraverseGis:
         self.actions = []
         self.menu = self.tr(u'&Compass Traverse GIS')
 
-        #print "** INITIALIZING CompassTraverseGis"
+        # print("** INITIALIZING CompassTraverseGis")
 
         self.pluginIsActive = False
         self.dockwidget = None
@@ -93,7 +93,6 @@ class CompassTraverseGis:
         if self.dockwidget is not None:
             self.dockwidget.apply_language(self.current_language_code)
 
-
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
@@ -109,7 +108,6 @@ class CompassTraverseGis:
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('CompassTraverseGis', message)
 
-
     def add_action(
         self,
         icon_path,
@@ -120,7 +118,8 @@ class CompassTraverseGis:
         add_to_toolbar=True,
         status_tip=None,
         whats_this=None,
-        parent=None):
+        parent=None,
+    ):
         """Add a toolbar icon to the toolbar.
 
         :param icon_path: Path to the icon for this action. Can be a resource
@@ -175,14 +174,11 @@ class CompassTraverseGis:
             self.iface.addVectorToolBarIcon(action)
 
         if add_to_menu:
-            self.iface.addPluginToVectorMenu(
-                self.menu,
-                action)
+            self.iface.addPluginToVectorMenu(self.menu, action)
 
         self.actions.append(action)
 
         return action
-
 
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
@@ -192,17 +188,15 @@ class CompassTraverseGis:
             icon_path,
             text=self.tr(u'Compass Traverse GIS'),
             callback=self.run,
-            parent=self.iface.mainWindow())
+            parent=self.iface.mainWindow(),
+        )
 
-    #--------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def onClosePlugin(self):
         """Cleanup necessary items here when plugin dockwidget is closed"""
-
-        self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
+        self._dispose_dockwidget()
         self.pluginIsActive = False
-        self.dockwidget = None
-
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -211,24 +205,17 @@ class CompassTraverseGis:
             QCoreApplication.removeTranslator(self.translator)
             self.translator = None
 
-        if self.dockwidget is not None:
-            try:
-                self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
-            except Exception:  # nosec B110
-                pass
-            self.iface.removeDockWidget(self.dockwidget)
-            self.dockwidget.close()
-            self.dockwidget.deleteLater()
-            self.dockwidget = None
+        self._dispose_dockwidget()
         self.pluginIsActive = False
 
         for action in self.actions:
             self.iface.removePluginVectorMenu(
                 self.tr(u'&Compass Traverse GIS'),
-                action)
+                action,
+            )
             self.iface.removeVectorToolBarIcon(action)
 
-    #--------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def run(self):
         """Run method that loads and starts the plugin"""
@@ -251,3 +238,16 @@ class CompassTraverseGis:
 
         elif self.dockwidget is not None:
             self.dockwidget.setVisible(not self.dockwidget.isVisible())
+
+    def _dispose_dockwidget(self):
+        dockwidget = self.dockwidget
+        if dockwidget is None:
+            return
+        try:
+            dockwidget.closingPlugin.disconnect(self.onClosePlugin)
+        except Exception:  # nosec B110
+            pass
+        self.iface.removeDockWidget(dockwidget)
+        dockwidget.close()
+        dockwidget.deleteLater()
+        self.dockwidget = None

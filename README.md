@@ -1,6 +1,7 @@
 # Compass Traverse GIS
 
-A QGIS plugin for compass survey notebook entry, traverse computation, and GIS layer output.
+A QGIS plugin for simple compass-survey workflows, traverse computation, and
+initial survey output inside QGIS.
 
 ![Screenshot](compass_traverse_gis.png)
 
@@ -13,7 +14,7 @@ A QGIS plugin for compass survey notebook entry, traverse computation, and GIS l
 - **Magnetic declination**: Apply a declination offset to all azimuth values
 - **Multiple projects / works**: Organize observations by project name and work name within a single workspace
 - **Workspace management**: Data is stored in a SQLite sidecar file alongside the QGIS project; past datasets can be archived and restored
-- **Export**: Generate an HTML report and map PDF when a work record is marked complete
+- **Export**: Generate an HTML report, map PDF, and GeoPackage output when a work record is marked complete
 - **Language toggle**: Switch between Japanese and English in-plugin
 
 ## Data storage

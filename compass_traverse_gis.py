@@ -245,7 +245,7 @@ class CompassTraverseGis:
             return
         try:
             dockwidget.closingPlugin.disconnect(self.onClosePlugin)
-        except Exception:  # nosec B110
+        except TypeError:
             pass
         self.iface.removeDockWidget(dockwidget)
         dockwidget.close()

@@ -4492,7 +4492,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         try:
             QgsProject.instance().readProject.disconnect(self._on_qgis_project_read)
             QgsProject.instance().cleared.disconnect(self._on_qgis_project_cleared)
-        except Exception:  # nosec B110
+        except TypeError:
             pass
         self.closingPlugin.emit()
         event.accept()

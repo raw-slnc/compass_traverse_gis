@@ -278,7 +278,7 @@ class GeoPointInputDialog(QtWidgets.QDialog):
             return
         try:
             self._canvas_point_tool.canvasClicked.disconnect(self._handle_canvas_point_picked)
-        except Exception:  # nosec B110
+        except TypeError:
             pass
         if self._previous_map_tool is not None:
             self._canvas.setMapTool(self._previous_map_tool)

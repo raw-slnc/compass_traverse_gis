@@ -1575,7 +1575,7 @@ def _draw_block_name_labels(painter, block_entries, extent, map_rect):
                 geom = QgsGeometry.fromPolygonXY([ring])
                 pt = geom.pointOnSurface().asPoint()
                 cx, cy = pt.x(), pt.y()
-            except Exception:  # nosec B110
+            except (TypeError, ValueError, RuntimeError):
                 pass
         if cx is None:
             cx = sum(c.x for c in coords) / len(coords)

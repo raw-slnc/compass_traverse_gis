@@ -6,18 +6,20 @@
   <title>Compass Traverse GIS Manual</title>
   <style>
     :root {
-      --bg: #f6f3ee;
-      --panel: #fffdf9;
-      --ink: #222;
-      --muted: #5f5a52;
-      --line: #d9d0c2;
-      --accent: #b33a2f;
-      --accent-soft: #f4d9d4;
+      --bg: #f4f7f1;
+      --panel: #fdfefb;
+      --ink: #2b302a;
+      --muted: #5c6b57;
+      --line: #d3e0cd;
+      --accent: #4a7c4e;
+      --accent-soft: #e8f0e8;
+      --note-line: #e6c800;
+      --note-bg: #fffbe6;
     }
     body {
       margin: 0;
       font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
-      background: linear-gradient(180deg, #f8f4ee 0%, #efe8dc 100%);
+      background: var(--bg);
       color: var(--ink);
       line-height: 1.65;
     }
@@ -28,32 +30,33 @@
     }
     header {
       margin-bottom: 28px;
-      padding: 24px 28px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      box-shadow: 0 10px 30px rgba(60,45,20,0.08);
+      padding: 16px 4px 20px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid var(--accent);
+      border-radius: 0;
+      box-shadow: none;
       display: flex;
       align-items: flex-start;
       gap: 20px;
     }
     header .header-text { flex: 1; }
     h1, h2, h3 { margin: 0 0 12px; line-height: 1.25; }
-    h1 { font-size: 2rem; }
-    h2 { font-size: 1.35rem; padding-bottom: 8px; border-bottom: 2px solid var(--accent-soft); }
+    h1 { font-size: 2rem; color: #2d5a30; }
+    h2 { font-size: 1.35rem; padding-left: 12px; border-left: 4px solid var(--accent); color: #2d5a30; }
     h3 {
       font-size: 1.02rem;
       margin-top: 22px;
       padding-top: 10px;
-      border-top: 1px solid #eadfce;
+      border-top: 1px solid var(--line);
     }
     section {
-      margin-bottom: 26px;
-      padding: 22px 24px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      box-shadow: 0 10px 24px rgba(60,45,20,0.06);
+      margin-bottom: 2.5em;
+      padding: 0;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
     }
     p, li { color: var(--ink); }
     p + table,
@@ -77,29 +80,28 @@
     }
     .note {
       padding: 10px 14px;
-      border-left: 4px solid var(--accent);
-      background: #fff6f4;
-      border-radius: 8px;
+      border-left: 3px solid var(--note-line);
+      background: var(--note-bg);
+      border-radius: 0;
       margin-top: 14px;
     }
     code {
       padding: 0.14em 0.46em;
       border-radius: 7px;
-      background: #eee5d7;
-      border: 1px solid #dbcbb5;
+      background: #eef3ea;
       font-family: "Cascadia Code", "Consolas", monospace;
       font-size: 0.95em;
     }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.96rem; }
     th, td { border: 1px solid var(--line); padding: 9px 10px; vertical-align: top; text-align: left; }
-    th { background: #f7efe2; width: 28%; }
+    th { background: var(--accent-soft); width: 28%; }
     ul, ol { margin: 10px 0 0 18px; padding: 0; }
     .lang-btn {
       flex-shrink: 0;
       padding: 6px 14px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #f1ece3;
+      background: #eef3ea;
       cursor: pointer;
       font-size: 0.9rem;
       color: var(--ink);
@@ -114,13 +116,13 @@
       padding: 6px 14px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #fffaf2;
+      background: #f6faf4;
       cursor: pointer;
       font-size: 0.9rem;
       color: var(--ink);
     }
     .page-btn.active {
-      background: #ead9c4;
+      background: var(--accent-soft);
       font-weight: 700;
     }
     .page {
@@ -134,7 +136,7 @@
       padding: 14px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: #fffaf3;
+      background: #f7faf5;
     }
     .figure-grid {
       display: grid;
@@ -246,9 +248,9 @@
     .formula {
       margin-top: 12px;
       padding: 12px 14px;
-      border: 1px solid #d8c9b3;
+      border: 1px solid var(--line);
       border-radius: 10px;
-      background: #fffaf2;
+      background: #f5f9f2;
       font-family: "Cascadia Code", "Consolas", monospace;
       font-size: 0.95rem;
       white-space: pre-wrap;
@@ -483,11 +485,11 @@
       <section>
         <h2>8. 行の表示ルール</h2>
         <ul>
-          <li>赤字の行は、除外区間として扱われる行です。総延長や一部の出力集計から除外されます。</li>
+          <li>赤字の行には2つの意味があります。(a) <code>除外区間</code> に設定された行 — この行の距離は総延長や一部の出力集計から除外されます。(b) 自動判定で接続線候補（Branch）のままの行 — こちらは除外区間ではなく、<code>除外区間</code> の設定とは無関係に総延長から自動的には除外されません。</li>
           <li>緑字の行は、自動判定では接続線候補だが、右クリックメニューの <code>Treat as Line (include)</code> により通常ラインとして扱う設定が入っている行です。</li>
           <li>測量点セルのオレンジ背景は接続不一致の警告、水色背景は不一致を承認した状態を表します。</li>
         </ul>
-        <div class="note"><code>Exclude Connecting Lines</code> チェックは、接続線候補の集計除外を補助するためのオプションです。最終的な除外指定は各行の <code>除外区間</code> 設定で確認してください。</div>
+        <div class="note">接続線候補（赤字・未設定）を集計から除外したい場合は <code>Exclude Connecting Lines</code> チェックを有効にしてください。個々の行を確実に除外するには、赤字だけで判断せず各行の <code>除外区間</code> 設定を確認してください。</div>
       </section>
 
       <section>
@@ -497,6 +499,7 @@
           <li><code>位置</code> 列で強めの緑背景になっている行は必須行、薄い緑背景になっている行は各ブロックの開始行です。</li>
           <li>薄い緑背景の行の <code>位置</code> は任意ですが、設定するとそのブロックを独自の位置で配置できます。</li>
           <li>必須行の <code>位置</code> が未設定のままでは、計算やレイヤ更新は停止します。</li>
+          <li>同一ブロック内に <code>位置</code> が複数設定されている場合は、計算順で最初に見つかった有効な <code>位置</code> が開始座標の逆算に使われます。</li>
         </ul>
       </section>
 
@@ -521,20 +524,20 @@
       <section>
         <h2>11. エクスポート</h2>
         <ul>
-          <li><code>エクスポート</code> は <code>完了フラグ</code> が完了状態の作業のみ実行できます。</li>
+          <li><code>エクスポート</code> は <code>完了フラグ</code> が未完了（編集中）の間だけ実行できます。<code>完了</code> にすると出力ボタンは無効化されます。</li>
           <li>HTML 帳票、地図 PDF、関連出力をまとめて生成します。</li>
           <li>出力先フォルダはエクスポートダイアログで指定します。</li>
         </ul>
         <h3>操作手順</h3>
         <p class="muted">出力するときは、次の流れで確認します。</p>
         <ol>
-          <li><code>プロジェクト</code> タブで <code>完了フラグ</code> を確認する</li>
+          <li><code>プロジェクト</code> タブで <code>完了フラグ</code> が未完了（編集中）であることを確認する</li>
           <li>必要なら <code>レイヤ更新</code> を押して最新状態にする</li>
           <li>左パネルの <code>エクスポート</code> を押す</li>
           <li>出力設定ダイアログで出力先や用紙設定を確認する</li>
           <li>出力前に赤字行と <code>除外区間</code> の設定を見直す</li>
         </ol>
-        <div class="note">除外区間は HTML 帳票や集計にも反映されます。出力前に、赤字行と <code>除外区間</code> 列の設定内容を確認してください。</div>
+        <div class="note">除外区間は HTML 帳票や集計にも反映されます。出力前に、赤字行と <code>除外区間</code> 列の設定内容を確認してください。<code>完了</code> にすると <code>エクスポート</code> は無効化されるため、出力し終えてから完了に切り替えてください。</div>
       </section>
 
       <section>
@@ -840,19 +843,21 @@ Area = |Σ DoubleArea_i| / 2</div>
       <section>
         <h2>8. Row Display Rules</h2>
         <ul>
-          <li>Rows shown in red are treated as excluded segments and are omitted from total-length style summaries.</li>
+          <li>Red text has two distinct causes: (a) the row is set as an <code>Excl. Seg.</code> — its distance is omitted from total-length style summaries; (b) the row is still an auto-detected connecting-line candidate (Branch) — this is not an excluded segment and, on its own, is not omitted from totals.</li>
           <li>Rows shown in green are auto-detected connecting-line candidates that have been explicitly treated as normal lines.</li>
           <li>An orange background on the From cell indicates a connection mismatch warning. A light blue background indicates the mismatch has been acknowledged.</li>
         </ul>
-        <div class="note"><code>Exclude Connecting Lines</code> is a helper option for total-length handling. The definitive per-row exclusion state is shown in the <code>Excl. Seg.</code> column.</div>
+        <div class="note">To exclude unresolved connecting-line candidates (red, not yet set) from totals, enable <code>Exclude Connecting Lines</code>. Do not rely on red text alone — check each row's <code>Excl. Seg.</code> setting for the definitive exclusion state.</div>
       </section>
 
       <section>
         <h2>9. Geo and Start Coordinate</h2>
         <ul>
-          <li>A row with a <code>Geo</code> value is used as an anchor to back-calculate the start coordinate.</li>
-          <li>If multiple Geo values exist, the first valid one encountered in calculation order is used to determine the start coordinate.</li>
-          <li>If the start coordinate cannot be resolved, computation and layer update will stop.</li>
+          <li>To run the calculation, the very first survey point must have a <code>Geo</code> value set.</li>
+          <li>In the <code>Geo</code> column, a row with a strong green background is the required row; rows with a light green background are each block's start row.</li>
+          <li>Geo on a light-green (block-start) row is optional, but setting it lets that block be placed at its own independent position.</li>
+          <li>A row with a <code>Geo</code> value is used as an anchor to back-calculate the start coordinate. If multiple Geo values exist within the same block, the first valid one encountered in calculation order is used.</li>
+          <li>If the required row's <code>Geo</code> is left unset, computation and layer update will stop.</li>
         </ul>
       </section>
 
@@ -877,20 +882,20 @@ Area = |Σ DoubleArea_i| / 2</div>
       <section>
         <h2>11. Export</h2>
         <ul>
-          <li><code>Export</code> is only available when <code>Completion</code> is in the complete state.</li>
+          <li><code>Export</code> is only available while <code>Completion</code> is not yet complete (still editing). Setting it to complete disables the export button.</li>
           <li>Generates HTML report, map PDF, and related outputs together.</li>
           <li>The output folder is specified in the Export dialog.</li>
         </ul>
         <h3>Pre-Export Checklist</h3>
         <p class="muted">Before exporting, check the following flow.</p>
         <ol>
-          <li>Check <code>Completion</code> in the <code>Project</code> tab</li>
+          <li>Check that <code>Completion</code> in the <code>Project</code> tab is not yet complete (still editing)</li>
           <li>Run <code>Update Layers</code> if the latest edits are not yet reflected</li>
           <li>Click <code>Export</code> in the left panel</li>
           <li>Review the output settings dialog, including output folder and paper settings</li>
           <li>Confirm red rows and <code>Excl. Seg.</code> settings before final output</li>
         </ol>
-        <div class="note">Excluded segments are reflected in the HTML report and summary values. Check the red rows and the <code>Excl. Seg.</code> column before export.</div>
+        <div class="note">Excluded segments are reflected in the HTML report and summary values. Check the red rows and the <code>Excl. Seg.</code> column before export. Setting <code>Completion</code> to complete disables <code>Export</code>, so export first and mark it complete afterward.</div>
       </section>
 
       <section>
@@ -937,6 +942,10 @@ if unit == pct: inclination_deg = atan(value / 100) × 180 / π</div>
           <h2>3. Magnetic Declination</h2>
           <p>The entered azimuth is adjusted in the plugin before traverse computation.</p>
           <div class="formula">true_azimuth = (raw_azimuth + magnetic_declination) mod 360</div>
+          <table class="spec-table">
+            <tr><th>Set at</th><td><code>Declination</code> in <code>Survey Settings</code></td></tr>
+            <tr><th>Sign</th><td>Added as <code>+ East / − West</code>.</td></tr>
+          </table>
         </section>
 
         <section>

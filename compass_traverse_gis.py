@@ -228,6 +228,7 @@ class CompassTraverseGis:
                     iface=self.iface,
                     plugin=self,
                 )
+                self.iface.mainWindow().installEventFilter(self.dockwidget)
             else:
                 self.dockwidget._clear_preview_layers()
                 self.dockwidget.apply_language(self.current_language_code)
@@ -243,6 +244,7 @@ class CompassTraverseGis:
         dockwidget = self.dockwidget
         if dockwidget is None:
             return
+        self.iface.mainWindow().removeEventFilter(dockwidget)
         try:
             dockwidget.closingPlugin.disconnect(self.onClosePlugin)
         except TypeError:

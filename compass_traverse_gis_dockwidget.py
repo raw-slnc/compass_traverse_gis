@@ -4514,6 +4514,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if w > 0:
                 table.setColumnWidth(0, int(w * 0.30))
 
+    def eventFilter(self, obj, event):
+        """Main window closing doesn't trigger closeEvent() below, so catch it via filter instead."""
+        if obj is self.iface.mainWindow() and event.type() == QtCore.QEvent.Close:
+            self._clear_preview_layers()
+        return False
+
     def closeEvent(self, event):
         self._clear_preview_layers()
         try:

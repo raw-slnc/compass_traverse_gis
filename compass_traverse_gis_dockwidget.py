@@ -25,6 +25,7 @@
 import math
 import os
 import re
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -4470,6 +4471,32 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.show()
             if geometry.isValid():
                 self.setGeometry(geometry)
+            self._detach_native_window_owner()
+
+    def _detach_native_window_owner(self):
+        """Clear the HWND owner Qt sets from our main-window parent; Windows hides owned windows from Alt+Tab."""
+        if not sys.platform.startswith("win"):
+            return
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            set_long_ptr = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+            get_long_ptr = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+            hwnd = int(self.winId())
+            gwlp_hwndparent = -8
+            gwl_exstyle = -20
+            ws_ex_appwindow = 0x00040000
+            ws_ex_toolwindow = 0x00000080
+            swp_flags = 0x0001 | 0x0002 | 0x0004 | 0x0020  # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
+
+            set_long_ptr(hwnd, gwlp_hwndparent, 0)
+            ex_style = get_long_ptr(hwnd, gwl_exstyle)
+            ex_style = (ex_style | ws_ex_appwindow) & ~ws_ex_toolwindow
+            set_long_ptr(hwnd, gwl_exstyle, ex_style)
+            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, swp_flags)
+        except (OSError, AttributeError, ValueError):
+            pass
 
     def _update_fullscreen_button_label(self):
         if self._current_language_code == "ja":

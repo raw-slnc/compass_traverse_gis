@@ -81,7 +81,7 @@ The output includes an HTML survey report and a map PDF; the output folder is ch
 
 ## Requirements
 
-- QGIS 3.22 or later
+- QGIS 3.34 or later
 
 ## Support
 

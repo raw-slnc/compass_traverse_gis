@@ -2907,7 +2907,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if not self._has_explicit_start_coordinate():
             return None, self.tr(
-                "The start position is not set. Enter latitude/longitude for any station in the Geo column before running the calculation."
+                "The start position is not set. Enter latitude/longitude for "
+                "any station in the Geo column before running the calculation."
             )
 
         return Coordinate(self.startXSpin.value(), self.startYSpin.value()), ""
@@ -2932,7 +2933,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if not self._has_explicit_start_coordinate(start_x, start_y, start_coordinate_defined):
             return None, self.tr(
-                "The start position is not set. Enter latitude/longitude for any station in the Geo column before running the calculation."
+                "The start position is not set. Enter latitude/longitude for "
+                "any station in the Geo column before running the calculation."
             )
 
         return Coordinate(start_x, start_y), ""
@@ -4053,7 +4055,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 seg_obs = blk_obs[seg_start:obs_index]
                 seg_legs = list(blk_comp.leg_results[seg_start:obs_index])
                 seg_id = blk_id if seg_index == 1 else f"{blk_id}_{seg_kind}_{seg_index}"
-                seg_name = block_name if seg_index == 1 else f"{block_name} ({'Branch' if seg_kind == 'branch' else 'Line'} {seg_index})"
+                branch_label = "Branch" if seg_kind == "branch" else "Line"
+                seg_name = (
+                    block_name
+                    if seg_index == 1
+                    else f"{block_name} ({branch_label} {seg_index})"
+                )
                 entries.append(
                     {
                         "block_id": seg_id,

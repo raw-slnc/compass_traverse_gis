@@ -1986,18 +1986,37 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             )
         return rows_html
 
-    table_open = """<table>
-<thead>
-<tr>
-  <th rowspan="2">""" + he(tr("From")) + """</th><th rowspan="2">""" + he(tr("To")) + """</th>
-  <th rowspan="2">""" + he(tr("Azimuth")) + """</th><th rowspan="2">""" + he(tr("True Azimuth")) + """<br>""" + he(tr("(after declination correction)")) + """</th><th rowspan="2">""" + he(tr("Inclination")) + """</th>
-  <th>""" + he(tr("Slope")) + """</th><th>""" + he(tr("Horizontal")) + """</th><th>""" + he(tr("Elevation Difference")) + """</th>
-  <th>△X</th><th>△Y</th>
-  <th rowspan="2">""" + he(tr("Connect To")) + """</th><th rowspan="2">""" + he(tr("Close To")) + """</th><th rowspan="2">""" + he(tr("Notes")) + """</th>
-</tr>
-<tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>
-</thead>
-<tbody>"""
+    header_labels = {
+        "from": he(tr("From")),
+        "to": he(tr("To")),
+        "azimuth": he(tr("Azimuth")),
+        "true_azimuth": he(tr("True Azimuth")),
+        "declination_note": he(tr("(after declination correction)")),
+        "inclination": he(tr("Inclination")),
+        "slope": he(tr("Slope")),
+        "horizontal": he(tr("Horizontal")),
+        "elevation_diff": he(tr("Elevation Difference")),
+        "connect_to": he(tr("Connect To")),
+        "close_to": he(tr("Close To")),
+        "notes": he(tr("Notes")),
+    }
+    table_open = (
+        '<table>\n<thead>\n<tr>\n'
+        f'  <th rowspan="2">{header_labels["from"]}</th><th rowspan="2">{header_labels["to"]}</th>\n'
+        f'  <th rowspan="2">{header_labels["azimuth"]}</th>'
+        f'<th rowspan="2">{header_labels["true_azimuth"]}<br>{header_labels["declination_note"]}</th>'
+        f'<th rowspan="2">{header_labels["inclination"]}</th>\n'
+        f'  <th>{header_labels["slope"]}</th><th>{header_labels["horizontal"]}</th>'
+        f'<th>{header_labels["elevation_diff"]}</th>\n'
+        '  <th>△X</th><th>△Y</th>\n'
+        f'  <th rowspan="2">{header_labels["connect_to"]}</th>'
+        f'<th rowspan="2">{header_labels["close_to"]}</th>'
+        f'<th rowspan="2">{header_labels["notes"]}</th>\n'
+        '</tr>\n'
+        '<tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>\n'
+        '</thead>\n'
+        '<tbody>'
+    )
     table_close = "</tbody></table>"
 
     sections = []
@@ -2036,14 +2055,15 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             if entry_type == "main":
                 if first_main:
                     line_sections.append(
-                        f"""<section class='notebook-block notebook-page-break'><h3>{he(tr("Line Survey Notebook"))}</h3><h4>{he(str(block_name))}</h4>{info_html}
-{table_open}{_rows_html(entry, add_subtotal=True)}{table_close}</section>"""
+                        f"<section class='notebook-block notebook-page-break'>"
+                        f"<h3>{he(tr('Line Survey Notebook'))}</h3><h4>{he(str(block_name))}</h4>{info_html}\n"
+                        f"{table_open}{_rows_html(entry, add_subtotal=True)}{table_close}</section>"
                     )
                     first_main = False
                 else:
                     line_sections.append(
-                        f"""<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>
-{table_open}{_rows_html(entry, add_subtotal=True)}{table_close}</section>"""
+                        f"<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>\n"
+                        f"{table_open}{_rows_html(entry, add_subtotal=True)}{table_close}</section>"
                     )
                 continue
             excluded_info_html = _info_html(
@@ -2052,9 +2072,11 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                 tr("Horizontal Distance Total"),
                 _fmt_d(_entry_sum_hd(entry, include_excluded_obs=True)) + " m",
             )
+            excluded_rows_html = _rows_html(entry, add_subtotal=True, subtotal_include_excluded=True)
             line_sections.append(
-                f"""<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>{excluded_info_html}
-{table_open}{_rows_html(entry, add_subtotal=True, subtotal_include_excluded=True)}{table_close}</section>"""
+                f"<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>"
+                f"{excluded_info_html}\n"
+                f"{table_open}{excluded_rows_html}{table_close}</section>"
             )
         sections.extend(line_sections)
 
@@ -2075,7 +2097,10 @@ def _section_area_calc_html(*, observations, computation, project_name,
         return f"<p>{he(tr('No calculation data (run calculation first)'))}</p>"
     area_entries = sorted(area_entries, key=lambda e: str(e.get("block_name") or e.get("block_id") or ""))
     sections = []
-    intro_parts = [f"<h3>{he(tr('Area Calculation Sheet (Double Meridian Distance)'))}</h3>", _area_summary_html(area_entries, heading=tr("Area Summary"))]
+    intro_parts = [
+        f"<h3>{he(tr('Area Calculation Sheet (Double Meridian Distance)'))}</h3>",
+        _area_summary_html(area_entries, heading=tr("Area Summary")),
+    ]
 
     def _calc_block_html(entry):
         observations = entry.get("observations", [])
@@ -2174,20 +2199,22 @@ def _section_area_calc_html(*, observations, computation, project_name,
             f"</tr>\n"
         )
 
-        table_html = f"""
-<table>
-<thead>
-<tr>
-  <th rowspan="2">{he(tr("From"))}</th><th rowspan="2">{he(tr("To"))}</th>
-  <th rowspan="2">{he(tr("True Azimuth"))}<br>{he(tr("(after declination correction)"))}</th><th rowspan="2">{he(tr("Inclination"))}</th>
-  <th>{he(tr("Slope"))}</th><th>{he(tr("Horizontal"))}</th><th>{he(tr("Elevation Difference"))}</th>
-  <th>Y</th><th>X</th><th>Z</th>
-  <th rowspan="2">{he(tr("Double Meridian Distance"))}</th><th rowspan="2">{he(tr("Latitude"))}</th><th rowspan="2">{he(tr("Double Area"))}</th>
-</tr>
-<tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>
-</thead>
-<tbody>{rows_html}</tbody>
-</table>"""
+        table_html = (
+            "\n<table>\n<thead>\n<tr>\n"
+            f'  <th rowspan="2">{he(tr("From"))}</th><th rowspan="2">{he(tr("To"))}</th>\n'
+            f'  <th rowspan="2">{he(tr("True Azimuth"))}<br>{he(tr("(after declination correction)"))}</th>'
+            f'<th rowspan="2">{he(tr("Inclination"))}</th>\n'
+            f'  <th>{he(tr("Slope"))}</th><th>{he(tr("Horizontal"))}</th>'
+            f'<th>{he(tr("Elevation Difference"))}</th>\n'
+            '  <th>Y</th><th>X</th><th>Z</th>\n'
+            f'  <th rowspan="2">{he(tr("Double Meridian Distance"))}</th>'
+            f'<th rowspan="2">{he(tr("Latitude"))}</th><th rowspan="2">{he(tr("Double Area"))}</th>\n'
+            '</tr>\n'
+            '<tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>\n'
+            '</thead>\n'
+            f'<tbody>{rows_html}</tbody>\n'
+            '</table>'
+        )
         return header_html + table_html
 
     intro_parts.append(_calc_block_html(area_entries[0]))
@@ -2747,7 +2774,8 @@ def _build_notebook_export_summary_rows(
         rows.append((
             tr_label("Length"),
             str(entry.get("block_name") or entry.get("block_id") or ""),
-            f"{tr_label('Slope')} {_fmt_d(sd)} m / {tr_label('Horizontal')} {_fmt_d(hd)} m / {tr_label('Excluded from calculation')}",
+            f"{tr_label('Slope')} {_fmt_d(sd)} m / {tr_label('Horizontal')} {_fmt_d(hd)} m / "
+            f"{tr_label('Excluded from calculation')}",
         ))
     if main_line_entries:
         rows.append((

@@ -53,6 +53,7 @@ class SurveyModelTest(unittest.TestCase):
                 "target_station",
                 "connect_to",
                 "close_to",
+                "exclude_marker",
                 "slope_distance",
                 "inclination",
                 "azimuth",

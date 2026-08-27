@@ -532,10 +532,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def _init_output_panel(self):
         self.exportButton.clicked.connect(self._open_export_settings)
         self.manualButton.clicked.connect(self._open_manual_html)
-        # Deliverables are always required in the new workflow; hide optional toggles.
-        self.areaDeliverableCheck.setVisible(False)
-        self.routeDeliverableCheck.setVisible(False)
-        self.layoutDeliverableCheck.setVisible(False)
 
     def _open_manual_html(self):
         manual_path = Path(__file__).resolve().parent / "manual_compass_traverse_gis.html"

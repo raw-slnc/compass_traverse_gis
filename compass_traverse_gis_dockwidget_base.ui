@@ -165,62 +165,32 @@
         </item>
         <item>
          <widget class="QGroupBox" name="deliverableGroup">
-          <property name="title">
-           <string>Deliverables</string>
-          </property>
-          <layout class="QGridLayout" name="deliverableLayout">
+         <property name="title">
+          <string>Deliverables</string>
+         </property>
+         <layout class="QGridLayout" name="deliverableLayout">
            <item row="0" column="0">
-            <widget class="QCheckBox" name="areaDeliverableCheck">
-             <property name="text">
-              <string>Area Deliverable</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QCheckBox" name="routeDeliverableCheck">
-             <property name="text">
-              <string>Route Deliverable</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QCheckBox" name="layoutDeliverableCheck">
-             <property name="text">
-              <string>Layout</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
             <widget class="QPushButton" name="exportButton">
              <property name="text">
               <string>Export</string>
              </property>
             </widget>
            </item>
-           <item row="1" column="2">
+           <item row="0" column="1">
             <widget class="QPushButton" name="manualButton">
              <property name="text">
               <string>Manual</string>
              </property>
             </widget>
            </item>
-           <item row="2" column="1">
+           <item row="1" column="0">
             <widget class="QPushButton" name="notebookExportButton">
              <property name="text">
               <string>Export GPKG</string>
              </property>
             </widget>
            </item>
-           <item row="2" column="2">
+           <item row="1" column="1">
             <widget class="QCheckBox" name="notebookAppendExistingLayerCheck">
              <property name="text">
               <string>Overwrite Latest</string>

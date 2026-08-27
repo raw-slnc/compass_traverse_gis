@@ -46,6 +46,22 @@ def _tr_export(message):
     return QtCore.QCoreApplication.translate("ExportSettingsDialog", message)
 
 
+def _station_highlight_expression(label_interval):
+    """Return the QGIS rule expression for highlighted station points."""
+    interval = max(1, int(label_interval or 1))
+    return f"\"seq_index\" > 0 AND \"seq_index\" % {interval} = 0"
+
+
+def _should_draw_station_label(seq_idx, label_interval):
+    """Return whether the station label should be shown for the sequence index."""
+    if seq_idx < 0:
+        return False
+    if seq_idx == 0:
+        return True
+    interval = max(1, int(label_interval or 1))
+    return seq_idx % interval == 0
+
+
 def _floor_ha_str(m2):
     """Return ha string truncated (not rounded) to 2 decimal places."""
     val = math.floor(m2 / 10000.0 * 100) / 100
@@ -1112,7 +1128,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
 # Layer style helpers
 # ---------------------------------------------------------------------------
 
-def _plain_styled_layers(traverse_layers):
+def _plain_styled_layers(traverse_layers, label_interval=5):
     """Return clones of traverse layers styled for plain map (rule-based points)."""
     try:
         from qgis.core import (
@@ -1149,9 +1165,9 @@ def _plain_styled_layers(traverse_layers):
                 r_first.setFilterExpression("\"seq_index\" = 0")
                 root.appendChild(r_first)
 
-                # Every 5th station within block: black fill
+                # Highlighted station within block: black fill
                 r_n5 = QgsRuleBasedRenderer.Rule(_pt_sym("0,0,0,255"))
-                r_n5.setFilterExpression("\"seq_index\" > 0 AND \"seq_index\" % 5 = 0")
+                r_n5.setFilterExpression(_station_highlight_expression(label_interval))
                 root.appendChild(r_n5)
 
                 # Others: white fill
@@ -1264,7 +1280,7 @@ def export_map_to_pdf(path, *, traverse_layer_ids, background_layer_name,
         page_h_px - 2 * margin_px - header_px)
 
     # Page 1: plain traverse — labels on, start point red
-    plain_traverse = _plain_styled_layers(traverse_layers)
+    plain_traverse = _plain_styled_layers(traverse_layers, label_interval=label_interval)
     _render_pdf_page(painter, plain_traverse, map_extent, map_rect,
                      margin_px, header_px, page_w_px, page_h_px,
                      project_name, work_name, drawing_number, scale_denom,
@@ -1491,9 +1507,7 @@ def _draw_station_labels(painter, preview_points, extent, map_rect,
             continue
 
         # Label only where dots are colored: seq_index=0 (red) or seq_index%N=0 (black)
-        if seq_idx < 0:
-            continue
-        if not (seq_idx == 0 or (seq_idx > 0 and seq_idx % label_interval == 0)):
+        if not _should_draw_station_label(seq_idx, label_interval):
             continue
 
         # Suppress label at closure target stations (e.g. station 64, 84)

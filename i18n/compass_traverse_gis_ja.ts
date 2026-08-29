@@ -58,6 +58,8 @@
     <message><source>Calculation Summary</source><translation>計算サマリー</translation></message>
     <message><source>Hide Plugin</source><translation>プラグインを隠す</translation></message>
     <message><source>Hide the plugin to use the full QGIS canvas</source><translation>プラグインを隠してQGISキャンバスを広く使う</translation></message>
+    <message><source>Separate window</source><translation>別ウィンドウ</translation></message>
+    <message><source>Show this panel as an independent window instead of a docked panel</source><translation>このパネルをドックではなく独立したウィンドウで表示します</translation></message>
   </context>
   <context>
     <name>CompassTraverseGisDockWidget</name>
@@ -160,8 +162,67 @@
     <message><source>Open data</source><translation>開くデータ</translation></message>
     <message><source>New Workspace</source><translation>新規作成</translation></message>
     <message><source>Please save the QGIS project first.</source><translation>先に QGIS プロジェクトを保存してください。</translation></message>
-    <message><source>The current data will be archived and a new workspace will be created.</source><translation>現行データを退避、格納し新規作成します。</translation></message>
-    <message><source>No current data exists, so a new SQLite workspace will be created in this project folder.</source><translation>現行データがないため、新しい SQLite をこのプロジェクトフォルダへ作成します。</translation></message>
+    <message><source>The project CRS is not set. Set a projected CRS in metres before computing the traverse.</source><translation>プロジェクトの CRS が未設定です。トラバース計算の前に、メートル単位の投影座標系を設定してください。</translation></message>
+    <message><source>CRS mismatch</source><translation>CRS 不一致</translation></message>
+    <message><source>CRS mismatch detected</source><translation>CRS不一致を検知</translation></message>
+    <message><source>The project CRS is degree-based; click for how to fix it</source><translation>プロジェクトの CRS が度単位です。対処方法はクリック</translation></message>
+    <message><source>Open manual</source><translation>マニュアルを開く</translation></message>
+    <message><source>(none)</source><translation>（なし）</translation></message>
+    <message><source>Suggested projected CRS for the current view: {}</source><translation>現在の表示範囲に適した投影座標系の候補: {}</translation></message>
+    <message><source>Choose the UTM zone for your area, or your national grid.</source><translation>対象地域の UTM ゾーン、または各国の平面直角座標系を選んでください。</translation></message>
+    <message><source>Suggested: {} (or your national grid).</source><translation>推奨: {}（または各国の平面直角座標系）。</translation></message>
+    <message><source>Use the matching UTM zone or your national grid.</source><translation>該当する UTM ゾーン、または各国の平面直角座標系を使ってください。</translation></message>
+    <message><source>The drawing export needs a metric projected CRS. The project CRS ({}) is degree-based.
+
+{}
+
+Set it in Project -&gt; Properties -&gt; CRS and export again. (In-QGIS preview and the notebook values stay usable; GPKG export is still available.)</source><translation>図面のエクスポートにはメートル単位の投影座標系が必要です。プロジェクトの CRS（{}）は度単位です。
+
+{}
+
+「プロジェクト → プロパティ → CRS」で設定してから再度エクスポートしてください。（QGIS 内のプレビューと野帳の数値はそのまま利用できます。GPKG エクスポートは引き続き可能です。）</translation></message>
+    <message><source>The project CRS ({}) is degree-based, so the traverse cannot be placed in it directly.
+
+The layers were generated provisionally in an auto-selected UTM zone from the Geo anchor, so the shape is usable. The notebook values (dX/dY, area, perimeter, closure) are always correct.
+
+For a final result, set the project CRS to a projected system in metres (your national grid or the matching UTM zone) and run the calculation again.</source><translation>プロジェクトの CRS（{}）は度単位のため、トラバースをそのまま配置できません。
+
+レイヤーは Geo アンカーから自動選択した UTM ゾーンで暫定的に生成したので、形状は利用できます。野帳の値（dX/dY・面積・周囲・閉合差）は常に正確です。
+
+最終成果には、プロジェクトの CRS をメートル単位の投影座標系（各国の平面直角座標系、または該当する UTM ゾーン）に設定し、計算をやり直してください。</translation></message>
+    <message><source>The project CRS is degree-based, so the start position must come from latitude/longitude. Enter lat/lon for a station in the Geo column, or set a projected CRS in metres.</source><translation>プロジェクトの CRS が度単位のため、開始位置は緯度経度から取る必要があります。いずれかの測点の Geo 列に緯度経度を入力するか、メートル単位の投影座標系を設定してください。</translation></message>
+    <message><source>Could not pick a UTM zone for the Geo anchor. Set a projected CRS in metres.</source><translation>Geo アンカーに対する UTM ゾーンを決定できませんでした。メートル単位の投影座標系を設定してください。</translation></message>
+    <message><source>Provisional placement: the project CRS is degree-based, so the generated layers use {} (auto-selected UTM zone). Values come from the notebook; set a projected CRS in metres for a final result.</source><translation>暫定配置: プロジェクトの CRS が度単位のため、生成レイヤーは {}（自動選択した UTM ゾーン）を使用します。値は野帳に基づきます。最終成果にはメートル単位の投影座標系を設定してください。</translation></message>
+    <message><source>The current project CRS is {}, which is geographic (degrees).
+
+Traverse legs are measured in metres, so on a degree-based CRS the layer is placed ~100,000x too large and in the wrong place.
+
+{}
+
+Set it in Project → Properties → CRS (or right-click the generated layer → Set CRS).</source><translation>現在のプロジェクト CRS は {} で、度単位の地理座標系です。
+
+トラバースの各辺はメートルで測定されるため、度単位の CRS ではレイヤーが実寸の約 10 万倍・誤った位置に配置されます。
+
+{}
+
+「プロジェクト → プロパティ → CRS」で設定してください（生成済みレイヤーを右クリック →「レイヤの CRS を設定」でも可）。</translation></message>
+    <message><source>The current data will be archived and a new empty workspace will be created.
+Continue?</source><translation>現行データを退避し、空の新規ワークスペースを作成します。
+続行しますか？</translation></message>
+    <message><source>No current data exists, so a new empty workspace will be created in this project folder.</source><translation>現行データがないため、空の新規ワークスペースをこのプロジェクトフォルダへ作成します。</translation></message>
+    <message><source>The current data was archived as:
+{}</source><translation>現行データを次の名前で退避しました:
+{}</translation></message>
+    <message><source>Could not archive the current data.
+{}</source><translation>現行データを退避できませんでした。
+{}</translation></message>
+    <message><source>Return to the current data before creating a new workspace.</source><translation>新規作成の前に、現行データへ戻してください。</translation></message>
+    <message><source>Switch</source><translation>切替</translation></message>
+    <message><source>Return to Current Data</source><translation>現行データに戻す</translation></message>
+    <message><source>Archive</source><translation>アーカイブ</translation></message>
+    <message><source>Current Data:</source><translation>現行データ：</translation></message>
+    <message><source>Archive:</source><translation>アーカイブ：</translation></message>
+    <message><source>Viewing archive (read-only): {}</source><translation>アーカイブ閲覧中（読み取り専用）: {}</translation></message>
     <message><source>There are unapplied edits. Run Update Layers to apply them.</source><translation>未反映の編集があります。レイヤ更新で反映してください。</translation></message>
     <message><source>Saved calculation results were loaded. Run Update Layers if you need refreshed output.</source><translation>保存済みの計算結果を読み込みました。必要に応じてレイヤ更新を実行してください。</translation></message>
     <message><source>This work is not marked as complete.
@@ -173,6 +234,35 @@ Set Completion = 1 in the project table before exporting.</source><translation>�
 {}</source><translation>エクスポート用データを準備できませんでした。
 {}</translation></message>
     <message><source>Please select an output folder.</source><translation>出力フォルダを選択してください。</translation></message>
+    <message><source>Cannot use the output folder:
+{}
+
+{}
+
+Choose another folder in the export dialog (Browse).</source><translation>出力フォルダを使用できません:
+{}
+
+{}
+
+エクスポートダイアログの「参照」で別のフォルダを選んでください。</translation></message>
+    <message><source>The output folder is not writable:
+{}
+
+Choose another folder in the export dialog (Browse).</source><translation>出力フォルダに書き込めません:
+{}
+
+エクスポートダイアログの「参照」で別のフォルダを選んでください。</translation></message>
+    <message><source>Could not write the export files to:
+{}
+
+{}
+
+Choose another folder in the export dialog (Browse). On Windows this can also be Controlled Folder Access blocking the write -- allow QGIS in Windows Security, or use a folder next to your project.</source><translation>エクスポートファイルを書き込めませんでした:
+{}
+
+{}
+
+エクスポートダイアログの「参照」で別のフォルダを選んでください。Windows では「制御されたフォルダー アクセス」が書き込みをブロックしていることもあります。Windows セキュリティで QGIS を許可するか、プロジェクトの隣のフォルダを使ってください。</translation></message>
     <message><source>Export finished: {}</source><translation>エクスポート完了: {}</translation></message>
     <message><source>Export completed.
 {}</source><translation>エクスポートが完了しました。

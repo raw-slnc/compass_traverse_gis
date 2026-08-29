@@ -471,9 +471,9 @@ class NotebookTableWidget(QtWidgets.QTableWidget):
         return super().edit(index, trigger, event)
 
     def mouseMoveEvent(self, event):
-        index = self.indexAt(event.pos())
+        index = self.indexAt(event.position().toPoint())
         if index.isValid() and index.column() in self._geo_columns:
-            global_pos = event.globalPos()
+            global_pos = event.globalPosition().toPoint()
             QtWidgets.QToolTip.showText(
                 global_pos,
                 _tr("Double-click to edit"),
@@ -491,7 +491,7 @@ class NotebookTableWidget(QtWidgets.QTableWidget):
         if not self._table_editable:
             super().mouseDoubleClickEvent(event)
             return
-        index = self.indexAt(event.pos())
+        index = self.indexAt(event.position().toPoint())
         if index.isValid() and index.column() in self._geo_columns:
             self._open_geo_dialog(index.row(), index.column())
             return
@@ -633,6 +633,18 @@ class NotebookTableWidget(QtWidgets.QTableWidget):
             self._geo_values.pop(key, None)
             self._set_cell_text(row_index, column_index, "")
         self.geoValueChanged.emit(row_index, column_index, latitude_text, longitude_text)
+
+    def retranslate_geo_cells(self):
+        """Re-apply the "Set" marker text in the current language after a
+        language switch (cell text is not covered by retranslateUi)."""
+        for row_index in range(self.rowCount()):
+            for column_index in self._geo_columns:
+                latitude_text, longitude_text = self._geo_values.get(
+                    (row_index, column_index),
+                    ("", ""),
+                )
+                if latitude_text or longitude_text:
+                    self._set_cell_text(row_index, column_index, _tr("Set"))
 
     def clear_geo_values(self):
         self._geo_values.clear()

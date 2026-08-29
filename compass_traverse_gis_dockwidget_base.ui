@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>CompassTraverseGisDockWidgetBase</class>
- <widget class="QDockWidget" name="CompassTraverseGisDockWidgetBase">
+ <widget class="QWidget" name="CompassTraverseGisDockWidgetBase">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -13,7 +13,6 @@
   <property name="windowTitle">
    <string>Compass Traverse GIS</string>
   </property>
-  <widget class="QWidget" name="dockWidgetContents">
    <layout class="QVBoxLayout" name="verticalLayout">
     <item>
      <widget class="QSplitter" name="mainSplitter">
@@ -22,6 +21,12 @@
       </property>
       <widget class="QWidget" name="leftPanelWidget">
        <layout class="QVBoxLayout" name="leftPanelLayout">
+        <item>
+         <widget class="QGroupBox" name="leftPanelGroup">
+          <property name="title">
+           <string/>
+          </property>
+          <layout class="QVBoxLayout" name="leftPanelGroupLayout">
         <item>
          <widget class="QGroupBox" name="workspaceGroup">
           <property name="title">
@@ -45,32 +50,44 @@
              </property>
             </widget>
            </item>
-           <item row="1" column="1">
-            <spacer name="workspaceButtonSpacer">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-             <property name="sizeType">
-              <enum>QSizePolicy::Expanding</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size><width>0</width><height>0</height></size>
-             </property>
-            </spacer>
-           </item>
-           <item row="1" column="2">
-            <widget class="QPushButton" name="openWorkspaceButton">
-             <property name="text">
-              <string>Switch</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="3">
-            <widget class="QPushButton" name="createWorkspaceButton">
-             <property name="text">
-              <string>New</string>
-             </property>
-            </widget>
+           <item row="1" column="0" colspan="4">
+            <layout class="QHBoxLayout" name="workspaceButtonRow">
+             <item>
+              <spacer name="workspaceButtonSpacerLeft">
+               <property name="orientation"><enum>Qt::Horizontal</enum></property>
+               <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+               <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+              </spacer>
+             </item>
+             <item>
+              <widget class="QPushButton" name="openWorkspaceButton">
+               <property name="text">
+                <string>Switch</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="workspaceButtonSpacerMid">
+               <property name="orientation"><enum>Qt::Horizontal</enum></property>
+               <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+               <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+              </spacer>
+             </item>
+             <item>
+              <widget class="QPushButton" name="createWorkspaceButton">
+               <property name="text">
+                <string>New</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="workspaceButtonSpacerRight">
+               <property name="orientation"><enum>Qt::Horizontal</enum></property>
+               <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+               <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+              </spacer>
+             </item>
+            </layout>
            </item>
           </layout>
          </widget>
@@ -204,6 +221,22 @@
          </widget>
         </item>
         <item>
+         <widget class="QLabel" name="creditLabel">
+          <property name="text">
+           <string notr="true">Developed by Avid Tree Work</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignHCenter|Qt::AlignVCenter</set>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">color: gray; font-size: 11px; margin-top: 4px;</string>
+          </property>
+         </widget>
+        </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
          <spacer name="leftPanelSpacer">
           <property name="orientation">
            <enum>Qt::Vertical</enum>
@@ -296,15 +329,28 @@
                 </spacer>
                </item>
                <item row="0" column="6" alignment="Qt::AlignRight|Qt::AlignVCenter">
-                <widget class="QPushButton" name="floatingFullscreenButton">
+                <widget class="QLabel" name="crsMismatchLabel">
                  <property name="text">
-                  <string>Fullscreen</string>
+                  <string/>
+                 </property>
+                 <property name="visible">
+                  <bool>false</bool>
+                 </property>
+                 <property name="textFormat">
+                  <enum>Qt::RichText</enum>
+                 </property>
+                 <property name="openExternalLinks">
+                  <bool>false</bool>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="7" alignment="Qt::AlignRight|Qt::AlignVCenter">
+                <widget class="QCheckBox" name="separateWindowCheck">
+                 <property name="text">
+                  <string>Separate window</string>
                  </property>
                  <property name="toolTip">
-                  <string>Toggle fullscreen (only works when floating)</string>
-                 </property>
-                 <property name="enabled">
-                  <bool>false</bool>
+                  <string>Show this panel as an independent window instead of a docked panel</string>
                  </property>
                 </widget>
                </item>
@@ -534,7 +580,6 @@
      </widget>
     </item>
    </layout>
-  </widget>
  </widget>
  <resources/>
  <connections/>

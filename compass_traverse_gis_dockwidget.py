@@ -25,13 +25,14 @@
 import math
 import os
 import re
-import sys
+import shutil
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 from qgis.PyQt import QtCore, QtWidgets, uic
-from qgis.PyQt.QtCore import Qt, QVariant, pyqtSignal
-from qgis.PyQt.QtGui import QColor, QDesktopServices
+from qgis.PyQt.QtCore import Qt, QMetaType, pyqtSignal
+from qgis.PyQt.QtGui import QColor, QDesktopServices, QPalette
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
@@ -104,7 +105,42 @@ _SUMMARY_MODES = {
 }
 
 
-class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
+class _ElidingLabel(QtWidgets.QLabel):
+    """QLabel that shrinks its text with an ellipsis instead of growing the
+    layout or wrapping. Full text stays available as the tooltip."""
+
+    def __init__(self, parent=None, mode=Qt.TextElideMode.ElideMiddle):
+        super().__init__(parent)
+        self._full_text = ""
+        self._mode = mode
+        self.setWordWrap(False)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+        self.setMinimumWidth(0)
+
+    def setText(self, text):
+        self._full_text = text or ""
+        self.setToolTip(self._full_text)
+        self._apply_elision()
+
+    def text(self):
+        return self._full_text
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_elision()
+
+    def _apply_elision(self):
+        metrics = self.fontMetrics()
+        super().setText(metrics.elidedText(self._full_text, self._mode, self.width()))
+
+
+class CompassTraverseGisDockWidget(QtWidgets.QWidget, FORM_CLASS):
+    # Plain QWidget panel. The plugin hosts it either in a QDockWidget or, when
+    # "Separate window" is checked, in a top-level QDialog -- native QDockWidget
+    # floating is avoided (Windows/Qt6 redock ghost-artifact bug).
 
     closingPlugin = pyqtSignal()
 
@@ -118,17 +154,23 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.plugin = plugin
         self.setupUi(self)
         self._replace_observation_table()
+        self._replace_workspace_value_label()
         self._station_reference_targets = {}
         self._adjusting_calculation_splitter = False
         self._linked_project_by_name = {}
         self._projects = {}
         self._active_workspace_name = ""
+        # When set, the workspace UI is bound read-only to an archived DB
+        # under compass_traverse_gis/_workspace_archive/. None = live workspace.
+        self._viewing_archive_path = None
         self._start_coordinate_defined = False
         self._preview_layer_ids = []
         self._preview_group_name = ""
         self._preview_group_node = None
-        self._pre_fullscreen_geometry = None
-        self._is_floating_fullscreen = False
+        self._crs_warning_shown = False
+        # CRS the current calculation builds geometry in: project CRS normally,
+        # or an auto-picked UTM zone when the project CRS is degree-based.
+        self._active_survey_crs = None
         self._project_snapshots = {}
         self._loading_project_state = False
         self._normalizing_geo_assignments = False
@@ -178,7 +220,17 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._load_workspace_state_from_db()
         QgsProject.instance().readProject.connect(self._on_qgis_project_read)
         QgsProject.instance().cleared.connect(self._on_qgis_project_cleared)
+        QgsProject.instance().crsChanged.connect(self._update_crs_mismatch_indicator)
+        self._init_crs_mismatch_label()
         self.apply_language(self._current_language_code)
+        self._update_crs_mismatch_indicator()
+
+    def _init_crs_mismatch_label(self):
+        palette = self.crsMismatchLabel.palette()
+        palette.setColor(QPalette.ColorRole.Link, QColor("#c0392b"))
+        self.crsMismatchLabel.setPalette(palette)
+        self.crsMismatchLabel.linkActivated.connect(self._show_crs_help)
+        self.crsMismatchLabel.setVisible(False)
 
     def _init_layout(self):
         self.mainSplitter.setSizes([280, 900])
@@ -237,6 +289,15 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         old_table.deleteLater()
         self.observationTable = new_table
 
+    def _replace_workspace_value_label(self):
+        old_label = self.workspacePathValueLabel
+        new_label = _ElidingLabel(old_label.parent())
+        new_label.setObjectName(old_label.objectName())
+        self.workspaceLayout.replaceWidget(old_label, new_label)
+        new_label.setText(old_label.text())
+        old_label.deleteLater()
+        self.workspacePathValueLabel = new_label
+
     def _init_control_sizes(self):
         button_width = 110
         combo_width = 180
@@ -244,8 +305,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         selector_combo_width = 228
 
         for button in (
-            self.openWorkspaceButton,
-            self.createWorkspaceButton,
             self.calculatePreviewButton,
             self.exportButton,
             self.manualButton,
@@ -255,12 +314,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         ):
             button.setFixedWidth(button_width)
 
+        # Workspace row buttons share one width sized to their longest label
+        # (labels change with language and with archive-view state).
+        self._resize_workspace_row_controls()
+
         wide_button_width = 150
-        for button in (
-            self.importNotebookButton,
-            self.floatingFullscreenButton,
-        ):
-            button.setFixedWidth(wide_button_width)
+        self.importNotebookButton.setFixedWidth(wide_button_width)
 
         self.fullscreenButton.setFixedWidth(button_width)
 
@@ -314,7 +373,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.inclinationUnitCombo.addItems(["deg", "pct"])
         self.blockNameCombo.currentIndexChanged.connect(self._handle_state_changed)
         self.closureEnabledCheck.setChecked(True)
-        self.fullscreenButton.clicked.connect(self.hide)
+        self.fullscreenButton.clicked.connect(self._hide_container)
         self.importNotebookButton.clicked.connect(self._import_notebook_table)
         self.calculatePreviewButton.clicked.connect(self._run_calculation_preview)
         self.renameBlockNameButton.clicked.connect(self._rename_selected_block_name)
@@ -327,8 +386,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.notebookAppendExistingLayerCheck.toggled.connect(self._handle_state_changed)
         self.notebookAppendExistingLayerCheck.toggled.connect(self._on_overwrite_check_toggled)
         self.notebookExportButton.clicked.connect(self._export_gpkg)
-        self.floatingFullscreenButton.clicked.connect(self._toggle_floating_fullscreen)
-        self.topLevelChanged.connect(self._on_floating_state_changed)
+        self.separateWindowCheck.toggled.connect(self._on_separate_window_toggled)
         self.excludeBranchCheck.toggled.connect(self._on_exclude_branch_toggled)
         self.magneticDeclinationSpin.valueChanged.connect(self._handle_state_changed)
 
@@ -373,7 +431,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.observationTable.verticalHeader().setVisible(True)
         self.observationTable.horizontalHeader().setStretchLastSection(True)
         self.observationTable.horizontalHeader().setSectionResizeMode(
-            QtWidgets.QHeaderView.Stretch
+            QtWidgets.QHeaderView.ResizeMode.Stretch
         )
         self.observationTable.cellDoubleClicked.connect(
             self._handle_observation_cell_double_click
@@ -480,10 +538,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.summaryTable.setColumnCount(2)
         self.summaryTable.horizontalHeader().setStretchLastSection(True)
         self.summaryTable.horizontalHeader().setSectionResizeMode(
-            0, QtWidgets.QHeaderView.Interactive
+            0, QtWidgets.QHeaderView.ResizeMode.Interactive
         )
         self.summaryTable.horizontalHeader().setSectionResizeMode(
-            1, QtWidgets.QHeaderView.Stretch
+            1, QtWidgets.QHeaderView.ResizeMode.Stretch
         )
         self._rebuild_summary_table("area")
         self._set_summary_by_key("notes", self.tr("Run calculation to show results here."))
@@ -510,10 +568,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.projectInfoTable.setItem(row_index, 1, QtWidgets.QTableWidgetItem(""))
         self.projectInfoTable.horizontalHeader().setStretchLastSection(True)
         self.projectInfoTable.horizontalHeader().setSectionResizeMode(
-            0, QtWidgets.QHeaderView.Interactive
+            0, QtWidgets.QHeaderView.ResizeMode.Interactive
         )
         self.projectInfoTable.horizontalHeader().setSectionResizeMode(
-            1, QtWidgets.QHeaderView.Stretch
+            1, QtWidgets.QHeaderView.ResizeMode.Stretch
         )
         self.projectInfoTable.verticalHeader().setVisible(False)
         self.projectInfoTable.itemChanged.connect(self._handle_project_table_item_changed)
@@ -547,6 +605,25 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         QDesktopServices.openUrl(url)
 
     def _open_export_settings(self):
+        crs = QgsProject.instance().crs()
+        if crs.isValid() and self._crs_needs_remedy(crs):
+            utm = self._suggested_utm_authid()
+            suggestion = (
+                self.tr("Suggested: {} (or your national grid).").format(utm)
+                if utm
+                else self.tr("Use the matching UTM zone or your national grid.")
+            )
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("Export"),
+                self.tr(
+                    "The drawing export needs a metric projected CRS. The project "
+                    "CRS ({}) is degree-based.\n\n{}\n\nSet it in Project -> "
+                    "Properties -> CRS and export again. (In-QGIS preview and the "
+                    "notebook values stay usable; GPKG export is still available.)"
+                ).format(crs.authid() or crs.description(), suggestion),
+            )
+            return
         if self._has_output_blocking_mismatches():
             QtWidgets.QMessageBox.warning(
                 self,
@@ -674,7 +751,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         block_entries,
         preview_points,
     ):
-        output_dir = settings["output_dir"]
+        output_dir = (settings.get("output_dir") or "").strip()
         if not output_dir:
             QtWidgets.QMessageBox.warning(
                 self,
@@ -682,33 +759,72 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 self.tr("Please select an output folder."),
             )
             return
+        output_dir = os.path.normpath(output_dir)
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export"),
+                self.tr(
+                    "Cannot use the output folder:\n{}\n\n{}\n\nChoose another "
+                    "folder in the export dialog (Browse)."
+                ).format(output_dir, error),
+            )
+            return
+        if not os.access(output_dir, os.W_OK):
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export"),
+                self.tr(
+                    "The output folder is not writable:\n{}\n\nChoose another "
+                    "folder in the export dialog (Browse)."
+                ).format(output_dir),
+            )
+            return
+        # Remember this folder so the next export defaults to it.
+        QtCore.QSettings().setValue("CompassTraverseGis/export_output_dir", output_dir)
         summary_values = [
             self.summaryTable.item(i, 1).text() if self.summaryTable.item(i, 1) else ""
             for i in range(self.summaryTable.rowCount())
         ]
-        files, messages = generate_export_bundle(
-            output_dir=output_dir,
-            project_name=self._project_record.project_name,
-            work_name=self._project_record.business_name,
-            scale_text=settings["scale"],
-            paper_key=settings["paper_size"],
-            background_layer_name=settings["background_layer_name"],
-            traverse_layer_ids=self._preview_layer_ids,
-            observations=observations,
-            computation=computation,
-            block_entries=block_entries,
-            summary_values=summary_values,
-            bottom_right_note=settings["bottom_right_note"],
-            drawing_number=settings.get("drawing_number", ""),
-            label_interval=settings.get("label_interval", 5),
-            preview_points=preview_points,
-            fiscal_year=self._format_project_year_display(),
-            surveyor=self._project_record.surveyor,
-            measurement_date=self._project_record.year_reference_date,
-            operation_type=self._project_record.operation_type,
-            exclude_connecting_lines=self.excludeBranchCheck.isChecked(),
-            magnetic_declination=self.magneticDeclinationSpin.value(),
-        )
+        try:
+            files, messages = generate_export_bundle(
+                output_dir=output_dir,
+                project_name=self._project_record.project_name,
+                work_name=self._project_record.business_name,
+                scale_text=settings["scale"],
+                paper_key=settings["paper_size"],
+                background_layer_name=settings["background_layer_name"],
+                traverse_layer_ids=self._preview_layer_ids,
+                observations=observations,
+                computation=computation,
+                block_entries=block_entries,
+                summary_values=summary_values,
+                bottom_right_note=settings["bottom_right_note"],
+                drawing_number=settings.get("drawing_number", ""),
+                label_interval=settings.get("label_interval", 5),
+                preview_points=preview_points,
+                fiscal_year=self._format_project_year_display(),
+                surveyor=self._project_record.surveyor,
+                measurement_date=self._project_record.year_reference_date,
+                operation_type=self._project_record.operation_type,
+                exclude_connecting_lines=self.excludeBranchCheck.isChecked(),
+                magnetic_declination=self.magneticDeclinationSpin.value(),
+            )
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export"),
+                self.tr(
+                    "Could not write the export files to:\n{}\n\n{}\n\nChoose "
+                    "another folder in the export dialog (Browse). On Windows this "
+                    "can also be Controlled Folder Access blocking the write -- "
+                    "allow QGIS in Windows Security, or use a folder next to your "
+                    "project."
+                ).format(output_dir, error),
+            )
+            return
         self.notebookHintLabel.setText(
             self.tr("Export finished: {}").format(files[0] if files else output_dir)
         )
@@ -1330,6 +1446,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._refresh_preview_layers(layer_entries)
         self._zoom_to_preview_layers()
         self._refresh_auto_row_kinds()
+        self._update_crs_mismatch_indicator()
         self._current_dirty = False
         self._save_current_project_state()
         self.notebookHintLabel.setText(
@@ -2008,7 +2125,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.currentLanguageLabel.setText("English")
         else:
             self.currentLanguageLabel.setText("Japanese")
-        self._update_fullscreen_button_label()
 
     def _retranslate_dynamic_texts(self):
         self._rebuild_summary_table(self._current_summary_mode, clear_values=False)
@@ -2050,6 +2166,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         ]
         self.observationTable.setHorizontalHeaderLabels(headers)
         self._retranslate_exclusion_marker_cells()
+        self.observationTable.retranslate_geo_cells()
         if self._current_language_code == "ja":
             self.fullscreenButton.setText("プラグインを隠す")
             self.fullscreenButton.setToolTip("プラグインを隠してQGISキャンバスを広く使う")
@@ -2065,6 +2182,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             active_work=self._project_record.business_name,
         )
         self._refresh_workspace_status()
+        self._update_crs_mismatch_indicator()
 
     def _handle_project_table_item_changed(self, item):
         if self._loading_project_state:
@@ -2117,6 +2235,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._refresh_workspace_status()
 
     def _rename_project(self, old_name, new_name):
+        if self._is_viewing_archive():
+            return False
         if not old_name or not new_name or old_name == new_name:
             return True
 
@@ -2148,6 +2268,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return True
 
     def _rename_work(self, old_name, new_name):
+        if self._is_viewing_archive():
+            return False
         if not old_name or not new_name or old_name == new_name:
             return True
 
@@ -2202,6 +2324,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         project_id = self._project_id_for_name(project_name)
         if not project_id:
             return ""
+        if self._is_viewing_archive():
+            return project_id
         workspace_path = self._current_workspace_path()
         if workspace_path is not None:
             save_project_entry(workspace_path, project_id)
@@ -2531,11 +2655,21 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return "unsaved_project"
         return project_file.stem
 
-    def _current_workspace_path(self):
+    def _live_workspace_path(self):
+        """The primary workspace DB, always next to the QGIS project file."""
         project_directory = self._project_directory()
         if project_directory is None:
             return None
         return project_directory / f"{self._project_stem()}.compass_traverse_gis.sqlite"
+
+    def _current_workspace_path(self):
+        """DB the workspace UI is currently bound to (archive when browsing, else live)."""
+        if self._viewing_archive_path is not None:
+            return self._viewing_archive_path
+        return self._live_workspace_path()
+
+    def _is_viewing_archive(self):
+        return self._viewing_archive_path is not None
 
     def _serialized_tuple_dict(self, values):
         serialized = {}
@@ -2643,6 +2777,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         }
 
     def _persist_workspace_state(self):
+        if self._is_viewing_archive():
+            return
         workspace_path = self._current_workspace_path()
         if workspace_path is None:
             return
@@ -2707,58 +2843,125 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         project_directory = self._project_directory()
         if project_directory is None:
             return None
-        return project_directory / "_compass_traverse_gis_archive"
+        return project_directory / "compass_traverse_gis" / "_workspace_archive"
 
     def _archived_workspace_paths(self):
         archive_directory = self._archive_directory()
         if archive_directory is None or not archive_directory.exists():
             return []
-        pattern = f"{self._project_stem()}.compass_traverse_gis.legacy_*.sqlite"
-        return sorted(archive_directory.glob(pattern))
+        stem = self._project_stem()
+        return sorted(
+            path
+            for path in archive_directory.glob(f"{stem}.*.sqlite")
+            if path.is_file()
+        )
+
+    def _resize_workspace_row_controls(self):
+        """Size the workspace-row label and buttons so nothing shifts when their
+        text changes with language or archive-view state."""
+        metrics = self.openWorkspaceButton.fontMetrics()
+
+        # Left label: reserve the wider of "Current Data:" / "Archive:" so the
+        # value column starts at a fixed x in both states.
+        label_width = max(
+            metrics.horizontalAdvance(self.tr("Current Data:")),
+            metrics.horizontalAdvance(self.tr("Archive:")),
+        ) + 6
+        self.workspacePathLabel.setFixedWidth(label_width)
+
+        button_candidates = (
+            self.tr("Switch"),
+            self.tr("Return to Current Data"),
+            self.tr("New"),
+        )
+        button_width = max(metrics.horizontalAdvance(text) for text in button_candidates) + 24
+        for button in (self.openWorkspaceButton, self.createWorkspaceButton):
+            button.setFixedWidth(button_width)
 
     def _refresh_workspace_status(self):
-        current_workspace = self._current_workspace_path()
+        live_path = self._live_workspace_path()
         archived_workspaces = self._archived_workspace_paths()
+        viewing = self._is_viewing_archive()
 
-        if current_workspace is None:
+        if live_path is None:
+            self.workspacePathLabel.setText(self.tr("Current Data:"))
             self.workspacePathValueLabel.setText(self.tr("Not Created"))
+            self.openWorkspaceButton.setText(self.tr("Switch"))
             self.openWorkspaceButton.setEnabled(False)
+            self.createWorkspaceButton.setEnabled(True)
+            self._resize_workspace_row_controls()
             return
 
-        active_name = self._displayed_workspace_name(current_workspace)
-        self.workspacePathValueLabel.setText(active_name)
-        self.openWorkspaceButton.setEnabled(bool(archived_workspaces))
+        if viewing:
+            self.workspacePathLabel.setText(self.tr("Archive:"))
+            self.workspacePathValueLabel.setText(self._viewing_archive_path.name)
+            self.openWorkspaceButton.setText(self.tr("Return to Current Data"))
+            self.openWorkspaceButton.setEnabled(True)
+            self.createWorkspaceButton.setEnabled(False)
+            self._resize_workspace_row_controls()
+            return
 
-    def _displayed_workspace_name(self, current_workspace):
-        if self._active_workspace_name:
-            return self._active_workspace_name
-        if current_workspace.exists():
-            return current_workspace.name
-        return self.tr("Not Created")
+        self.workspacePathLabel.setText(self.tr("Current Data:"))
+        if live_path.exists():
+            self.workspacePathValueLabel.setText(live_path.name)
+        else:
+            self.workspacePathValueLabel.setText(self.tr("Not Created"))
+        self.openWorkspaceButton.setText(self.tr("Switch"))
+        self.openWorkspaceButton.setEnabled(bool(archived_workspaces))
+        self.createWorkspaceButton.setEnabled(True)
+        self._resize_workspace_row_controls()
+
+    def _reload_workspace_view(self):
+        """Rebind the workspace UI to whatever _current_workspace_path() now points at."""
+        self._workspace_loaded = False
+        self._projects = {}
+        self._project_snapshots = {}
+        self._linked_project_by_name = {}
+        self._rebuild_project_and_work_selectors(active_project="", active_work="")
+        self._clear_active_work_state()
+        self._load_workspace_state_from_db()
+        self._populate_project_table()
+        self._apply_project_editability()
+        self._refresh_workspace_status()
 
     def _show_workspace_switcher(self):
+        if self._is_viewing_archive():
+            # Button acts as "Return to Current Data" while browsing an archive.
+            self._viewing_archive_path = None
+            self._reload_workspace_view()
+            return
+
         archived_workspaces = self._archived_workspace_paths()
         if not archived_workspaces:
             return
-        current_workspace = self._current_workspace_path()
-        names = [current_workspace.name if current_workspace else self.tr("Current Data")]
-        names.extend(path.name for path in archived_workspaces)
+        labels = [path.name for path in archived_workspaces]
         selected_name, accepted = QtWidgets.QInputDialog.getItem(
             self,
             self.tr("Switch Saved Data"),
             self.tr("Open data"),
-            names,
+            labels,
             0,
             False,
         )
         if not accepted:
             return
-        self._active_workspace_name = selected_name.strip()
-        self._refresh_workspace_status()
+        target = next((path for path in archived_workspaces if path.name == selected_name.strip()), None)
+        if target is None:
+            return
+        self._viewing_archive_path = target
+        self._reload_workspace_view()
 
     def _confirm_workspace_reset(self):
-        current_workspace = self._current_workspace_path()
-        if current_workspace is None:
+        if self._is_viewing_archive():
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("New Workspace"),
+                self.tr("Return to the current data before creating a new workspace."),
+            )
+            return
+
+        live_path = self._live_workspace_path()
+        if live_path is None:
             QtWidgets.QMessageBox.information(
                 self,
                 self.tr("New Workspace"),
@@ -2766,21 +2969,45 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             )
             return
 
-        if current_workspace.exists():
-            self._active_workspace_name = current_workspace.name
+        if live_path.exists():
+            confirm = QtWidgets.QMessageBox.question(
+                self,
+                self.tr("New Workspace"),
+                self.tr(
+                    "The current data will be archived and a new empty workspace "
+                    "will be created.\nContinue?"
+                ),
+                QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+                QtWidgets.QMessageBox.StandardButton.No,
+            )
+            if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
+            archive_directory = self._archive_directory()
+            archive_directory.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            target = archive_directory / f"{self._project_stem()}.{timestamp}.sqlite"
+            try:
+                shutil.move(str(live_path), str(target))
+            except OSError as error:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self.tr("New Workspace"),
+                    self.tr("Could not archive the current data.\n{}").format(error),
+                )
+                return
             QtWidgets.QMessageBox.information(
                 self,
                 self.tr("New Workspace"),
-                self.tr("The current data will be archived and a new workspace will be created."),
+                self.tr("The current data was archived as:\n{}").format(target.name),
             )
         else:
-            self._active_workspace_name = ""
             QtWidgets.QMessageBox.information(
                 self,
                 self.tr("New Workspace"),
-                self.tr("No current data exists, so a new SQLite workspace will be created in this project folder."),
+                self.tr("No current data exists, so a new empty workspace will be created in this project folder."),
             )
-        self._refresh_workspace_status()
+
+        self._reload_workspace_view()
 
     def _link_selected_project(self):
         return
@@ -2891,15 +3118,178 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._apply_start_coordinate(start_coordinate)
         return True
 
+    def _crs_not_set_message(self):
+        return self.tr(
+            "The project CRS is not set. Set a projected CRS in metres before "
+            "computing the traverse."
+        )
+
+    def _warn_geographic_crs_once(self):
+        """Session-once popup: provisional layers were placed in an auto-picked UTM zone."""
+        if self._crs_warning_shown:
+            return
+        self._crs_warning_shown = True
+        crs = QgsProject.instance().crs()
+        QtWidgets.QMessageBox.information(
+            self,
+            self.tr("CRS mismatch"),
+            self.tr(
+                "The project CRS ({}) is degree-based, so the traverse cannot be "
+                "placed in it directly.\n\n"
+                "The layers were generated provisionally in an auto-selected UTM "
+                "zone from the Geo anchor, so the shape is usable. The notebook "
+                "values (dX/dY, area, perimeter, closure) are always correct.\n\n"
+                "For a final result, set the project CRS to a projected system in "
+                "metres (your national grid or the matching UTM zone) and run the "
+                "calculation again."
+            ).format(crs.authid() or crs.description()),
+        )
+
+    def _suggested_utm_authid(self):
+        """WGS84 UTM zone EPSG code for the current map centre, or None."""
+        if self.iface is None or self.iface.mapCanvas() is None:
+            return None
+        center = self.iface.mapCanvas().extent().center()
+        crs = QgsProject.instance().crs()
+        if crs.isGeographic():
+            lon, lat = center.x(), center.y()
+        else:
+            try:
+                transformer = QgsCoordinateTransform(
+                    crs,
+                    QgsCoordinateReferenceSystem("EPSG:4326"),
+                    QgsProject.instance(),
+                )
+                point = transformer.transform(center)
+                lon, lat = point.x(), point.y()
+            except Exception:
+                return None
+        if not (-180.0 <= lon <= 180.0 and -80.0 <= lat <= 84.0):
+            return None
+        zone = int((lon + 180.0) // 6.0) + 1
+        zone = min(max(zone, 1), 60)
+        return "EPSG:{}".format((32600 if lat >= 0 else 32700) + zone)
+
+    def _show_crs_help(self, _href=None):
+        crs = QgsProject.instance().crs()
+        crs_name = crs.authid() or crs.description() or self.tr("(none)")
+        utm = self._suggested_utm_authid()
+        suggestion = (
+            self.tr("Suggested projected CRS for the current view: {}").format(utm)
+            if utm
+            else self.tr("Choose the UTM zone for your area, or your national grid.")
+        )
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setWindowTitle(self.tr("CRS mismatch"))
+        box.setText(
+            self.tr(
+                "The current project CRS is {}, which is geographic (degrees).\n\n"
+                "Traverse legs are measured in metres, so on a degree-based CRS the "
+                "layer is placed ~100,000x too large and in the wrong place.\n\n"
+                "{}\n\n"
+                "Set it in Project → Properties → CRS (or right-click the "
+                "generated layer → Set CRS)."
+            ).format(crs_name, suggestion)
+        )
+        manual_button = box.addButton(
+            self.tr("Open manual"), QtWidgets.QMessageBox.ButtonRole.HelpRole
+        )
+        box.addButton(QtWidgets.QMessageBox.StandardButton.Close)
+        box.exec()
+        if box.clickedButton() is manual_button:
+            self._open_manual_html()
+
+    def _update_crs_mismatch_indicator(self):
+        crs = QgsProject.instance().crs()
+        needs_remedy = crs.isValid() and self._crs_needs_remedy(crs)
+        self.crsMismatchLabel.setVisible(needs_remedy)
+        if needs_remedy:
+            self.crsMismatchLabel.setText(
+                '<a href="crs-help">⚠ {}</a>'.format(self.tr("CRS mismatch detected"))
+            )
+            self.crsMismatchLabel.setToolTip(
+                self.tr("The project CRS is degree-based; click for how to fix it")
+            )
+
+    def _crs_needs_remedy(self, crs):
+        """True for a degree-based CRS, or a pseudo-Mercator that badly distorts metres."""
+        if not crs.isValid():
+            return False
+        if crs.isGeographic():
+            return True
+        if (crs.authid() or "").upper() in (
+            "EPSG:3857", "EPSG:900913", "EPSG:3785", "EPSG:102100", "EPSG:102113",
+        ):
+            return True
+        try:
+            return "proj=merc" in crs.toProj().lower()
+        except Exception:
+            return False
+
+    def _remedial_utm_crs(self, longitude, latitude):
+        """WGS84 UTM zone CRS for a lon/lat, or None if out of usable range."""
+        if not (-180.0 <= longitude <= 180.0 and -80.0 <= latitude <= 84.0):
+            return None
+        zone = min(max(int((longitude + 180.0) // 6.0) + 1, 1), 60)
+        crs = QgsCoordinateReferenceSystem(
+            "EPSG:{}".format((32600 if latitude >= 0 else 32700) + zone)
+        )
+        return crs if crs.isValid() else None
+
+    def _determine_survey_crs(self, observations, geo_values=None):
+        """(crs, note) for the frame the traverse is built in. crs=None => cannot proceed."""
+        project_crs = QgsProject.instance().crs()
+        if not project_crs.isValid():
+            return None, self._crs_not_set_message()
+        if not self._crs_needs_remedy(project_crs):
+            return project_crs, ""
+
+        if geo_values is None:
+            _row, lat_text, lon_text = self._active_geo_anchor(observations)
+        else:
+            _row, lat_text, lon_text = self._active_geo_anchor_from_values(observations, geo_values)
+        if not (lat_text.strip() and lon_text.strip()):
+            return None, self.tr(
+                "The project CRS is degree-based, so the start position must come "
+                "from latitude/longitude. Enter lat/lon for a station in the Geo "
+                "column, or set a projected CRS in metres."
+            )
+        try:
+            longitude = self._parse_dms_to_decimal(lon_text)
+            latitude = self._parse_dms_to_decimal(lat_text)
+        except ValueError as error:
+            return None, str(error)
+        utm = self._remedial_utm_crs(longitude, latitude)
+        if utm is None:
+            return None, self.tr(
+                "Could not pick a UTM zone for the Geo anchor. Set a projected "
+                "CRS in metres."
+            )
+        return utm, self.tr(
+            "Provisional placement: the project CRS is degree-based, so the "
+            "generated layers use {} (auto-selected UTM zone). Values come from "
+            "the notebook; set a projected CRS in metres for a final result."
+        ).format(utm.authid())
+
     def _resolve_start_coordinate(self, observations):
+        self._active_survey_crs = None
         block_groups = self._group_observations_by_block(observations)
         first_block_observations = block_groups[0][1] if block_groups else observations
+        survey_crs, crs_note = self._determine_survey_crs(first_block_observations)
+        if survey_crs is None:
+            return None, crs_note
+        self._active_survey_crs = survey_crs
+        if crs_note:
+            self._warn_geographic_crs_once()
+
         start_coordinate, coordinate_note = self._compute_start_coordinate_from_geo_anchor(
             first_block_observations
         )
+        notes = "  ".join(n for n in (crs_note, coordinate_note) if n)
         if start_coordinate is not None:
             self._apply_start_coordinate(start_coordinate)
-            return start_coordinate, coordinate_note
+            return start_coordinate, notes
 
         if not self._has_explicit_start_coordinate():
             return None, self.tr(
@@ -2907,7 +3297,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 "any station in the Geo column before running the calculation."
             )
 
-        return Coordinate(self.startXSpin.value(), self.startYSpin.value()), ""
+        return Coordinate(self.startXSpin.value(), self.startYSpin.value()), notes
 
     def _resolve_start_coordinate_for_context(
         self,
@@ -2918,14 +3308,21 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         start_coordinate_defined,
         unit_profile,
     ):
+        self._active_survey_crs = None
+        survey_crs, crs_note = self._determine_survey_crs(observations, geo_values=geo_values)
+        if survey_crs is None:
+            return None, crs_note
+        self._active_survey_crs = survey_crs
+
         start_coordinate, coordinate_note = self._compute_start_coordinate_from_geo_anchor(
             observations,
             geo_values=geo_values,
             unit_profile=unit_profile,
             start_station=observations[0].from_station,
         )
+        notes = "  ".join(n for n in (crs_note, coordinate_note) if n)
         if start_coordinate is not None:
-            return start_coordinate, coordinate_note
+            return start_coordinate, notes
 
         if not self._has_explicit_start_coordinate(start_x, start_y, start_coordinate_defined):
             return None, self.tr(
@@ -2933,7 +3330,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 "any station in the Geo column before running the calculation."
             )
 
-        return Coordinate(start_x, start_y), ""
+        return Coordinate(start_x, start_y), notes
 
     def _active_geo_anchor(self, observations):
         geo_values = self.observationTable.geo_values_snapshot()
@@ -2952,13 +3349,13 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         latitude = self._parse_dms_to_decimal(latitude_text)
         longitude = self._parse_dms_to_decimal(longitude_text)
 
-        project_crs = QgsProject.instance().crs()
-        if not project_crs.isValid():
+        target_crs = self._active_survey_crs or QgsProject.instance().crs()
+        if target_crs is None or not target_crs.isValid():
             raise ValueError("QGIS プロジェクト CRS が未設定です。")
 
         transformer = QgsCoordinateTransform(
             QgsCoordinateReferenceSystem("EPSG:4326"),
-            project_crs,
+            target_crs,
             QgsProject.instance(),
         )
         point = transformer.transform(QgsPointXY(longitude, latitude))
@@ -3012,6 +3409,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if workspace_path is None:
             return
         work_name = str(project_name).split("\t", 1)[1].strip() if "\t" in str(project_name) else ""
+        if self._is_viewing_archive():
+            return
         if not load_work_snapshot(workspace_path, project_display_name, work_name):
             save_work_snapshot(
                 workspace_path,
@@ -3097,6 +3496,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _save_current_project_state(self, project_name=None):
         if self._loading_project_state:
+            return
+        if self._is_viewing_archive():
             return
         name = project_name or self._current_project_name()
         if not name:
@@ -3327,9 +3728,10 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         )
 
     def _apply_project_editability(self):
-        complete = self._project_record.is_complete
-        self.observationTable.set_table_editable(not complete)
-        if complete:
+        # Browsing an archived DB is always read-only, regardless of completion flag.
+        read_only = self._project_record.is_complete or self._is_viewing_archive()
+        self.observationTable.set_table_editable(not read_only)
+        if read_only:
             self.observationTable.setEditTriggers(
                 QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
             )
@@ -3349,10 +3751,17 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.importNotebookButton,
             self.renameBlockNameButton,
         ):
-            widget.setEnabled(not complete)
+            widget.setEnabled(not read_only)
         self._update_output_actions_state()
 
     def _create_project_from_selector(self):
+        if self._is_viewing_archive():
+            self.projectSelectorCombo.blockSignals(True)
+            try:
+                self.projectSelectorCombo.setCurrentText(self._project_selector_previous_text)
+            finally:
+                self.projectSelectorCombo.blockSignals(False)
+            return
         new_name, accepted = QtWidgets.QInputDialog.getText(
             self,
             self.tr("Add Work"),
@@ -3450,6 +3859,13 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._persist_workspace_state()
 
     def _delete_workspace_project_from_selector(self):
+        if self._is_viewing_archive():
+            self.workspaceProjectCombo.blockSignals(True)
+            try:
+                self.workspaceProjectCombo.setCurrentText(self._workspace_project_previous_text)
+            finally:
+                self.workspaceProjectCombo.blockSignals(False)
+            return
         project_names = self._available_project_names()
         if not project_names:
             return
@@ -3516,6 +3932,13 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._persist_workspace_state()
 
     def _delete_work_from_selector(self):
+        if self._is_viewing_archive():
+            self.projectSelectorCombo.blockSignals(True)
+            try:
+                self.projectSelectorCombo.setCurrentText(self._project_selector_previous_text)
+            finally:
+                self.projectSelectorCombo.blockSignals(False)
+            return
         current_project = self.workspaceProjectCombo.currentText().strip()
         work_names = self._available_work_names(current_project)
         if not work_names:
@@ -3681,9 +4104,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _refresh_preview_layers(self, computation):
         self._clear_preview_layers()
-        root_group = self._create_preview_root_group(
-            self._project_record.project_name or self.tr("Worksite A")
-        )
+        group_name = self._project_record.project_name or self.tr("Worksite A")
+        if self._active_survey_crs is not None and self._crs_needs_remedy(
+            QgsProject.instance().crs()
+        ):
+            group_name = "{} [{}]".format(group_name, self._active_survey_crs.authid())
+        root_group = self._create_preview_root_group(group_name)
         for entry in computation:
             self._create_preview_point_layer(
                 entry["computation"],
@@ -3708,7 +4134,18 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         root_group.setExpanded(True)
 
     def _preview_layers_extent(self):
+        """Combined extent of the preview layers, in the canvas CRS.
+
+        The generated layers may be in an auto-picked UTM zone while the canvas
+        is in the (degree-based) project CRS, so each extent is transformed
+        before combining -- otherwise the canvas pans to metre values read as
+        degrees.
+        """
         project = QgsProject.instance()
+        canvas = self.iface.mapCanvas() if self.iface is not None else None
+        dest_crs = (
+            canvas.mapSettings().destinationCrs() if canvas is not None else project.crs()
+        )
         combined_extent = None
         for layer_id in self._preview_layer_ids:
             layer = project.mapLayer(layer_id)
@@ -3717,11 +4154,25 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             layer_extent = layer.extent()
             if layer_extent.isNull() or layer_extent.isEmpty():
                 continue
+            if layer.crs() != dest_crs:
+                layer_extent = self._transform_bbox(
+                    layer.crs(), dest_crs, layer_extent, project
+                )
+            if layer_extent is None or layer_extent.isNull():
+                continue
             if combined_extent is None:
                 combined_extent = QgsRectangle(layer_extent)
             else:
                 combined_extent.combineExtentWith(layer_extent)
         return combined_extent
+
+    def _transform_bbox(self, source_crs, dest_crs, rectangle, context):
+        try:
+            return QgsCoordinateTransform(
+                source_crs, dest_crs, context
+            ).transformBoundingBox(rectangle)
+        except Exception:
+            return None
 
     def _zoom_to_preview_layers(self):
         if self.iface is None:
@@ -3730,21 +4181,18 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if canvas is None:
             return
         extent = self._preview_layers_extent()
-        if extent is None:
+        if extent is None or extent.isNull() or extent.isEmpty():
             return
 
         padded_extent = QgsRectangle(extent)
-        span = max(padded_extent.width(), padded_extent.height())
-        padding = max(span * 0.05, 1.0)
-        padded_extent.grow(padding)
-
+        padded_extent.scale(1.1)
         canvas.setExtent(padded_extent)
         canvas.refresh()
 
     def _project_crs_suffix(self):
-        project_crs = QgsProject.instance().crs()
-        if project_crs.isValid():
-            return f"?crs={project_crs.authid()}"
+        crs = self._active_survey_crs or QgsProject.instance().crs()
+        if crs is not None and crs.isValid():
+            return f"?crs={crs.authid()}"
         return ""
 
     def _effective_coordinates(self, computation):
@@ -3888,12 +4336,12 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         provider = layer.dataProvider()
         provider.addAttributes(
             [
-                QgsField("station", QVariant.String),
-                QgsField("label_text", QVariant.String),
-                QgsField("x", QVariant.Double),
-                QgsField("y", QVariant.Double),
-                QgsField("seq_index", QVariant.Int),
-                QgsField("block_id", QVariant.String),
+                QgsField("station", QMetaType.Type.QString),
+                QgsField("label_text", QMetaType.Type.QString),
+                QgsField("x", QMetaType.Type.Double),
+                QgsField("y", QMetaType.Type.Double),
+                QgsField("seq_index", QMetaType.Type.Int),
+                QgsField("block_id", QMetaType.Type.QString),
             ]
         )
         layer.updateFields()
@@ -4088,15 +4536,15 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         provider = layer.dataProvider()
         provider.addAttributes(
             [
-                QgsField("from_st", QVariant.String),
-                QgsField("to_st", QVariant.String),
-                QgsField("sd", QVariant.Double),
-                QgsField("hd", QVariant.Double),
-                QgsField("dx", QVariant.Double),
-                QgsField("dy", QVariant.Double),
-                QgsField("block_nm", QVariant.String),
-                QgsField("route_tp", QVariant.String),
-                QgsField("excluded", QVariant.Int),
+                QgsField("from_st", QMetaType.Type.QString),
+                QgsField("to_st", QMetaType.Type.QString),
+                QgsField("sd", QMetaType.Type.Double),
+                QgsField("hd", QMetaType.Type.Double),
+                QgsField("dx", QMetaType.Type.Double),
+                QgsField("dy", QMetaType.Type.Double),
+                QgsField("block_nm", QMetaType.Type.QString),
+                QgsField("route_tp", QMetaType.Type.QString),
+                QgsField("excluded", QMetaType.Type.Int),
             ]
         )
         layer.updateFields()
@@ -4170,9 +4618,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         provider = layer.dataProvider()
         provider.addAttributes(
             [
-                QgsField("name", QVariant.String),
-                QgsField("area_m2", QVariant.Double),
-                QgsField("area_ha", QVariant.Double),
+                QgsField("name", QMetaType.Type.QString),
+                QgsField("area_m2", QMetaType.Type.Double),
+                QgsField("area_ha", QMetaType.Type.Double),
             ]
         )
         layer.updateFields()
@@ -4369,9 +4817,9 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             options.driverName = "GPKG"
             options.layerName = layer_name
             options.actionOnExistingFile = (
-                QgsVectorFileWriter.CreateOrOverwriteFile
+                QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
                 if first_layer
-                else QgsVectorFileWriter.CreateOrOverwriteLayer
+                else QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
             )
             first_layer = False
             write_result, err_msg, _, _ = QgsVectorFileWriter.writeAsVectorFormatV3(
@@ -4380,7 +4828,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 transform_context,
                 options,
             )
-            if write_result != QgsVectorFileWriter.NoError:
+            if write_result != QgsVectorFileWriter.WriterError.NoError:
                 QtWidgets.QMessageBox.warning(
                     self,
                     self.tr("Export GPKG"),
@@ -4440,76 +4888,27 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if self.iface is not None and self.iface.mapCanvas() is not None:
             self.iface.mapCanvas().refresh()
 
-    def _toggle_floating_fullscreen(self):
-        if not self.isFloating():
-            return
-        if self._is_floating_fullscreen:
-            self._is_floating_fullscreen = False
-            if self._pre_fullscreen_geometry is not None:
-                self.setGeometry(self._pre_fullscreen_geometry)
-                self._pre_fullscreen_geometry = None
+    def set_separate_window_checked(self, checked):
+        """Reflect the current container in the checkbox without re-triggering the toggle."""
+        self.separateWindowCheck.blockSignals(True)
+        self.separateWindowCheck.setChecked(checked)
+        self.separateWindowCheck.blockSignals(False)
+
+    def _on_separate_window_toggled(self, checked):
+        if self.plugin is not None and hasattr(self.plugin, "set_separate_window"):
+            self.plugin.set_separate_window(checked)
+
+    def _hide_container(self):
+        """"Hide Plugin" button: hide the whole dock/dialog, not just this widget."""
+        if self.plugin is not None and hasattr(self.plugin, "hide_container"):
+            self.plugin.hide_container()
         else:
-            self._pre_fullscreen_geometry = self.geometry()
-            screen = QtWidgets.QApplication.screenAt(self.pos())
-            if screen is None:
-                screen = QtWidgets.QApplication.primaryScreen()
-            self.setGeometry(screen.geometry())
-            self._is_floating_fullscreen = True
-        self._update_fullscreen_button_label()
-
-    def _on_floating_state_changed(self, is_floating):
-        self.floatingFullscreenButton.setEnabled(is_floating)
-        if not is_floating:
-            self._is_floating_fullscreen = False
-            self._pre_fullscreen_geometry = None
-        self._sync_floating_window_flags(is_floating)
-        self._update_fullscreen_button_label()
-
-    def _sync_floating_window_flags(self, is_floating):
-        """Use a normal top-level window when floating so Alt+Tab can target it."""
-        if is_floating:
-            geometry = self.geometry()
-            self.setWindowFlag(Qt.WindowType.Tool, False)
-            self.setWindowFlag(Qt.WindowType.Window, True)
-            self.show()
-            if geometry.isValid():
-                self.setGeometry(geometry)
-            self._detach_native_window_owner()
-
-    def _detach_native_window_owner(self):
-        """Clear the HWND owner Qt sets from our main-window parent; Windows hides owned windows from Alt+Tab."""
-        if not sys.platform.startswith("win"):
-            return
-        try:
-            import ctypes
-
-            user32 = ctypes.windll.user32
-            set_long_ptr = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
-            get_long_ptr = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
-            hwnd = int(self.winId())
-            gwlp_hwndparent = -8
-            gwl_exstyle = -20
-            ws_ex_appwindow = 0x00040000
-            ws_ex_toolwindow = 0x00000080
-            swp_flags = 0x0001 | 0x0002 | 0x0004 | 0x0020  # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
-
-            set_long_ptr(hwnd, gwlp_hwndparent, 0)
-            ex_style = get_long_ptr(hwnd, gwl_exstyle)
-            ex_style = (ex_style | ws_ex_appwindow) & ~ws_ex_toolwindow
-            set_long_ptr(hwnd, gwl_exstyle, ex_style)
-            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, swp_flags)
-        except (OSError, AttributeError, ValueError):
-            pass
-
-    def _update_fullscreen_button_label(self):
-        if self._current_language_code == "ja":
-            self.floatingFullscreenButton.setText("全画面解除" if self._is_floating_fullscreen else "全画面")
-        else:
-            self.floatingFullscreenButton.setText("Exit Full" if self._is_floating_fullscreen else "Fullscreen")
+            self.hide()
 
     def showEvent(self, event):
         super().showEvent(event)
         QtCore.QTimer.singleShot(0, self._apply_info_column_ratio)
+        self._update_crs_mismatch_indicator()
 
     def _apply_info_column_ratio(self):
         for table in (self.projectInfoTable, self.summaryTable):
@@ -4519,7 +4918,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def eventFilter(self, obj, event):
         """Main window closing doesn't trigger closeEvent() below, so catch it via filter instead."""
-        if obj is self.iface.mainWindow() and event.type() == QtCore.QEvent.Close:
+        if obj is self.iface.mainWindow() and event.type() == QtCore.QEvent.Type.Close:
             self._clear_preview_layers()
         return False
 
@@ -4528,6 +4927,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         try:
             QgsProject.instance().readProject.disconnect(self._on_qgis_project_read)
             QgsProject.instance().cleared.disconnect(self._on_qgis_project_cleared)
+            QgsProject.instance().crsChanged.disconnect(self._update_crs_mismatch_indicator)
         except TypeError:
             pass
         self.closingPlugin.emit()

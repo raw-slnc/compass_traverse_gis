@@ -1,9 +1,9 @@
 [general]
 name=Compass Traverse GIS
-qgisMinimumVersion=3.34
-qgisMaximumVersion=3.99
+qgisMinimumVersion=4.0
+qgisMaximumVersion=4.99
 description=Compass survey entry, traverse computation, and initial survey output in QGIS.
-version=0.1.2
+version=1.0.0
 author=Hideharu Masai
 email=hideharumasai@void.mints.ne.jp
 
@@ -16,6 +16,7 @@ homepage=https://github.com/raw-slnc/compass_traverse_gis
 
 hasProcessingProvider=no
 changelog=
+    1.0.0 - QGIS 4.x / PyQt6 port. Requires QGIS 4.0 or later. QGIS 3.x users stay on the 0.1.x line (3.x-maintenance branch).
     0.1.2 - Fix station highlight markers on the plain traverse map not following the Station Label Interval setting; remove unused deliverable-type checkboxes from the export panel.
     0.1.1 - Initial public QGIS 3.x release with DB-backed work/project persistence, deletion fixes, geo restore fixes, and security-scan cleanup.
 

@@ -23,7 +23,7 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
+from qgis.PyQt.QtWidgets import QAction, QDialog, QDockWidget, QVBoxLayout
 
 import os.path
 
@@ -48,6 +48,8 @@ class CompassTraverseGis:
         self.plugin_dir = os.path.dirname(__file__)
         self.translator = None
         self._language_setting_key = "CompassTraverseGis/language"
+        self._separate_window_key = "CompassTraverseGis/separate_window"
+        self._dialog_geometry_key = "CompassTraverseGis/window_geometry"
         self.current_language_code = self._preferred_language_code()
         self._apply_language(self.current_language_code, persist=False)
 
@@ -55,10 +57,11 @@ class CompassTraverseGis:
         self.actions = []
         self.menu = self.tr(u'&Compass Traverse GIS')
 
-        # print("** INITIALIZING CompassTraverseGis")
-
-        self.pluginIsActive = False
-        self.dockwidget = None
+        # UI panel and its two possible hosts (docked / separate window)
+        self.panel = None
+        self.dock = None
+        self.dialog = None
+        self._switching_container = False
 
     def _preferred_language_code(self):
         stored_language = QSettings().value(self._language_setting_key, "", type=str)
@@ -90,8 +93,13 @@ class CompassTraverseGis:
 
     def set_language(self, language_code):
         self._apply_language(language_code)
-        if self.dockwidget is not None:
-            self.dockwidget.apply_language(self.current_language_code)
+        if self.panel is not None:
+            self.panel.apply_language(self.current_language_code)
+        title = self.tr(u'Compass Traverse GIS')
+        if self.dock is not None:
+            self.dock.setWindowTitle(title)
+        if self.dialog is not None:
+            self.dialog.setWindowTitle(title)
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -194,9 +202,8 @@ class CompassTraverseGis:
     # --------------------------------------------------------------------------
 
     def onClosePlugin(self):
-        """Cleanup necessary items here when plugin dockwidget is closed"""
-        self._dispose_dockwidget()
-        self.pluginIsActive = False
+        """Cleanup when the panel itself is closed (rare; disposal is normally via unload)."""
+        self._dispose_all()
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -205,8 +212,7 @@ class CompassTraverseGis:
             QCoreApplication.removeTranslator(self.translator)
             self.translator = None
 
-        self._dispose_dockwidget()
-        self.pluginIsActive = False
+        self._dispose_all()
 
         for action in self.actions:
             self.iface.removePluginVectorMenu(
@@ -217,39 +223,152 @@ class CompassTraverseGis:
 
     # --------------------------------------------------------------------------
 
-    def run(self):
-        """Run method that loads and starts the plugin"""
+    def _separate_window_enabled(self):
+        return QSettings().value(self._separate_window_key, False, type=bool)
 
-        if not self.pluginIsActive:
-            self.pluginIsActive = True
+    def _ensure_panel(self):
+        if self.panel is None:
+            self.panel = CompassTraverseGisDockWidget(
+                iface=self.iface,
+                plugin=self,
+            )
+            self.iface.mainWindow().installEventFilter(self.panel)
+            self.panel.closingPlugin.connect(self.onClosePlugin)
 
-            if self.dockwidget is None:
-                self.dockwidget = CompassTraverseGisDockWidget(
-                    iface=self.iface,
-                    plugin=self,
-                )
-                self.iface.mainWindow().installEventFilter(self.dockwidget)
-            else:
-                self.dockwidget._clear_preview_layers()
-                self.dockwidget.apply_language(self.current_language_code)
-
-            self.dockwidget.closingPlugin.connect(self.onClosePlugin)
-            self.iface.addDockWidget(Qt.BottomDockWidgetArea, self.dockwidget)
-            self.dockwidget.show()
-
-        elif self.dockwidget is not None:
-            self.dockwidget.setVisible(not self.dockwidget.isVisible())
-
-    def _dispose_dockwidget(self):
-        dockwidget = self.dockwidget
-        if dockwidget is None:
+    def _create_dock(self):
+        if self.dock is not None:
             return
-        self.iface.mainWindow().removeEventFilter(dockwidget)
+        self._ensure_panel()
+        self.dock = QDockWidget(self.tr(u'Compass Traverse GIS'), self.iface.mainWindow())
+        self.dock.setObjectName('CompassTraverseGisDock')
+        # No DockWidgetFloatable: native float is the Windows/Qt6 ghost-artifact path.
+        self.dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+        )
+        self.dock.setAllowedAreas(
+            Qt.DockWidgetArea.TopDockWidgetArea
+            | Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        self.dock.setWidget(self.panel)
+        self.panel.set_separate_window_checked(False)
+        self.iface.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock)
+        self.panel.show()
+
+    def _create_dialog(self):
+        if self.dialog is not None:
+            return
+        self._ensure_panel()
+        self.dialog = QDialog(None, Qt.WindowType.Window)
+        self.dialog.setObjectName('CompassTraverseGisWindow')
+        self.dialog.setWindowTitle(self.tr(u'Compass Traverse GIS'))
+        layout = QVBoxLayout(self.dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.panel)
+        self.panel.set_separate_window_checked(True)
+        self.panel.show()
+        geometry = QSettings().value(self._dialog_geometry_key, None)
+        if geometry:
+            self.dialog.restoreGeometry(geometry)
+        else:
+            self.dialog.resize(1200, 600)
+        self.dialog.finished.connect(self._on_dialog_finished)
+
+    def _save_dialog_geometry(self):
+        if self.dialog is not None:
+            QSettings().setValue(
+                self._dialog_geometry_key, self.dialog.saveGeometry()
+            )
+
+    def _on_dialog_finished(self, *_args):
+        # Closing the separate window just hides it; the plugin stays loaded.
+        if not self._switching_container:
+            self._save_dialog_geometry()
+
+    def _destroy_dock(self):
+        if self.dock is None:
+            return
+        self.dock.setWidget(None)
+        self.iface.removeDockWidget(self.dock)
+        self.dock.deleteLater()
+        self.dock = None
+
+    def _destroy_dialog(self):
+        if self.dialog is None:
+            return
+        self._save_dialog_geometry()
+        layout = self.dialog.layout()
+        if layout is not None:
+            layout.removeWidget(self.panel)
+        self.panel.setParent(None)
+        self.dialog.hide()
+        self.dialog.deleteLater()
+        self.dialog = None
+
+    def set_separate_window(self, enabled):
+        """Swap the panel between a docked QDockWidget and a top-level QDialog."""
+        QSettings().setValue(self._separate_window_key, bool(enabled))
+        self._ensure_panel()
+        self._switching_container = True
         try:
-            dockwidget.closingPlugin.disconnect(self.onClosePlugin)
-        except TypeError:
-            pass
-        self.iface.removeDockWidget(dockwidget)
-        dockwidget.close()
-        dockwidget.deleteLater()
-        self.dockwidget = None
+            if enabled:
+                self._destroy_dock()
+                self._create_dialog()
+                self.dialog.show()
+                self.dialog.raise_()
+                self.dialog.activateWindow()
+            else:
+                self._destroy_dialog()
+                self._create_dock()
+                self.panel.show()
+                self.dock.show()
+                self.dock.raise_()
+        finally:
+            self._switching_container = False
+
+    def hide_container(self):
+        if self.dialog is not None:
+            self.dialog.hide()
+        elif self.dock is not None:
+            self.dock.hide()
+
+    def run(self):
+        """Show the panel in its configured host, creating it on first use."""
+        self._ensure_panel()
+
+        first_show = self.dock is None and self.dialog is None
+        if first_show:
+            if self._separate_window_enabled():
+                self._create_dialog()
+            else:
+                self._create_dock()
+        else:
+            self.panel._clear_preview_layers()
+            self.panel.apply_language(self.current_language_code)
+
+        if self.dialog is not None:
+            self.dialog.show()
+            self.dialog.raise_()
+            self.dialog.activateWindow()
+        elif self.dock is not None:
+            if not first_show and self.dock.isVisible():
+                self.dock.hide()
+            else:
+                self.dock.show()
+                self.dock.raise_()
+
+    def _dispose_all(self):
+        if self.panel is None and self.dock is None and self.dialog is None:
+            return
+        if self.panel is not None:
+            self.iface.mainWindow().removeEventFilter(self.panel)
+            try:
+                self.panel.closingPlugin.disconnect(self.onClosePlugin)
+            except TypeError:
+                pass
+        self._destroy_dialog()
+        self._destroy_dock()
+        if self.panel is not None:
+            self.panel.close()
+            self.panel.deleteLater()
+            self.panel = None

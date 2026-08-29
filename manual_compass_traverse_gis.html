@@ -501,6 +501,15 @@
           <li>必須行の <code>位置</code> が未設定のままでは、計算やレイヤ更新は停止します。</li>
           <li>同一ブロック内に <code>位置</code> が複数設定されている場合は、計算順で最初に見つかった有効な <code>位置</code> が開始座標の逆算に使われます。</li>
         </ul>
+        <h3>座標系（CRS）</h3>
+        <ul>
+          <li>トラバース計算は<strong>メートル単位</strong>で行われます。野帳から計算される値（<code>dX</code> / <code>dY</code>・面積・周囲・閉合差）は CRS に依存せず常に正確です。</li>
+          <li>プロジェクトの CRS が<strong>メートル単位の投影座標系</strong>なら、生成レイヤはその CRS で作られます。</li>
+          <li>プロジェクトの CRS が<strong>地理座標系（度単位。例: EPSG:4326 / WGS 84）や擬似メルカトル（EPSG:3857）</strong>のときは、<code>位置</code> 列の緯度経度から<strong>適切な UTM ゾーンを自動選択</strong>して生成レイヤに付与します。QGIS 内のプレビュー表示・計測はこの状態でも使えます。</li>
+          <li>この状態のとき、野帳設定の <code>測量テーブル読込</code> ボタンの上に赤字で <strong>CRS不一致を検知</strong> と表示されます。クリックすると変更先の候補が表示されます。</li>
+          <li><strong>図面のエクスポート（PDF ＋ 測量野帳・面積計算簿）はこの状態では実行できません。</strong><code>プロジェクト → プロパティ → CRS</code> でメートル単位の投影座標系（各国の平面直角座標系、または該当する UTM ゾーン）を設定してから、再度エクスポートしてください。</li>
+        </ul>
+        <div class="note">GPKG エクスポートは CRS 不一致の状態でも利用できます（自動選択した UTM ゾーンを GPKG 自身が保持します）。ただし正式な出来形成果は、正しいメートル投影座標系を設定して出力してください。</div>
       </section>
 
       <section>
@@ -859,6 +868,15 @@ Area = |Σ DoubleArea_i| / 2</div>
           <li>A row with a <code>Geo</code> value is used as an anchor to back-calculate the start coordinate. If multiple Geo values exist within the same block, the first valid one encountered in calculation order is used.</li>
           <li>If the required row's <code>Geo</code> is left unset, computation and layer update will stop.</li>
         </ul>
+        <h3>Coordinate Reference System (CRS)</h3>
+        <ul>
+          <li>The traverse is computed in <strong>metres</strong>. The values derived from the notebook (<code>dX</code> / <code>dY</code>, area, perimeter, closure) are always correct, independent of the CRS.</li>
+          <li>If the project CRS is a <strong>projected system in metres</strong>, the generated layers use that CRS.</li>
+          <li>If the project CRS is <strong>geographic (degree-based, e.g. EPSG:4326 / WGS 84) or pseudo-Mercator (EPSG:3857)</strong>, the plugin auto-selects a suitable <strong>UTM zone</strong> from the latitude/longitude in the <code>Geo</code> column and assigns it to the generated layers, so the in-QGIS preview and measurements stay usable.</li>
+          <li>In that state a red <strong>CRS mismatch detected</strong> link appears above the <code>Import Survey Table</code> button; click it for a suggested CRS.</li>
+          <li><strong>Drawing export (PDF plus the survey/area tables) is blocked in that state.</strong> Set a projected CRS in metres (your national grid, or the matching UTM zone) in <code>Project → Properties → CRS</code>, then export again.</li>
+        </ul>
+        <div class="note">GPKG export still works while the CRS mismatches (the GPKG carries its own auto-selected UTM zone). Even so, produce final deliverables with the correct projected CRS in metres.</div>
       </section>
 
       <section>

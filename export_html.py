@@ -62,6 +62,53 @@ def _should_draw_station_label(seq_idx, label_interval):
     return seq_idx % interval == 0
 
 
+_EXPORT_DIR_SETTING = "CompassTraverseGis/export_output_dir"
+
+
+def _default_output_dir():
+    """A writable default folder for export files.
+
+    Documents is preferred, but on some Windows setups (OneDrive Known Folder
+    Move, etc.) that path is not usable -- fall back to the home directory.
+    """
+    for location in (
+        QtCore.QStandardPaths.StandardLocation.DocumentsLocation,
+        QtCore.QStandardPaths.StandardLocation.HomeLocation,
+    ):
+        path = QtCore.QStandardPaths.writableLocation(location)
+        if path and os.path.isdir(path) and os.access(path, os.W_OK):
+            return os.path.normpath(path)
+    return os.path.normpath(os.path.expanduser("~"))
+
+
+def _project_export_dir():
+    """<project folder>/compass_traverse_gis/export, or None if the project is unsaved.
+
+    Keeps exports next to the project (like the GPKG export) and out of the
+    Windows folders that Controlled Folder Access protects (Documents, etc.).
+    """
+    project_path = QgsProject.instance().fileName()
+    if not project_path:
+        return None
+    return os.path.normpath(
+        os.path.join(os.path.dirname(project_path), "compass_traverse_gis", "export")
+    )
+
+
+def _default_export_dir():
+    """Preferred default for the output-folder field: the project's export folder
+    when the project is saved, else the last-used folder, else a safe writable path."""
+    project_dir = _project_export_dir()
+    if project_dir:
+        return project_dir
+    saved = QtCore.QSettings().value(_EXPORT_DIR_SETTING, "", type=str)
+    if saved:
+        saved = os.path.normpath(saved)
+        if os.path.isdir(saved) and os.access(saved, os.W_OK):
+            return saved
+    return _default_output_dir()
+
+
 def _floor_ha_str(m2):
     """Return ha string truncated (not rounded) to 2 decimal places."""
     val = math.floor(m2 / 10000.0 * 100) / 100
@@ -333,9 +380,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         row = 0
         form.addWidget(QtWidgets.QLabel(self.tr("Output Folder")), row, 0)
         self.output_dir_edit = QtWidgets.QLineEdit()
-        self.output_dir_edit.setText(
-            QtCore.QStandardPaths.writableLocation(
-                QtCore.QStandardPaths.StandardLocation.DocumentsLocation))
+        self.output_dir_edit.setText(_default_export_dir())
         form.addWidget(self.output_dir_edit, row, 1)
         browse_btn = QtWidgets.QPushButton(self.tr("Browse..."))
         browse_btn.clicked.connect(self._browse_output_dir)
@@ -2416,6 +2461,7 @@ def generate_export_bundle(
     exclude_connecting_lines=False,
     magnetic_declination=0.0,
 ):
+    output_dir = os.path.normpath(output_dir)
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_base = _safe_name(project_name or "compass_traverse")

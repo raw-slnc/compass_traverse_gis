@@ -674,7 +674,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         block_entries,
         preview_points,
     ):
-        output_dir = settings["output_dir"]
+        output_dir = (settings.get("output_dir") or "").strip()
         if not output_dir:
             QtWidgets.QMessageBox.warning(
                 self,
@@ -682,33 +682,72 @@ class CompassTraverseGisDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 self.tr("Please select an output folder."),
             )
             return
+        output_dir = os.path.normpath(output_dir)
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export"),
+                self.tr(
+                    "Cannot use the output folder:\n{}\n\n{}\n\nChoose another "
+                    "folder in the export dialog (Browse)."
+                ).format(output_dir, error),
+            )
+            return
+        if not os.access(output_dir, os.W_OK):
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export"),
+                self.tr(
+                    "The output folder is not writable:\n{}\n\nChoose another "
+                    "folder in the export dialog (Browse)."
+                ).format(output_dir),
+            )
+            return
+        # Remember this folder so the next export defaults to it.
+        QtCore.QSettings().setValue("CompassTraverseGis/export_output_dir", output_dir)
         summary_values = [
             self.summaryTable.item(i, 1).text() if self.summaryTable.item(i, 1) else ""
             for i in range(self.summaryTable.rowCount())
         ]
-        files, messages = generate_export_bundle(
-            output_dir=output_dir,
-            project_name=self._project_record.project_name,
-            work_name=self._project_record.business_name,
-            scale_text=settings["scale"],
-            paper_key=settings["paper_size"],
-            background_layer_name=settings["background_layer_name"],
-            traverse_layer_ids=self._preview_layer_ids,
-            observations=observations,
-            computation=computation,
-            block_entries=block_entries,
-            summary_values=summary_values,
-            bottom_right_note=settings["bottom_right_note"],
-            drawing_number=settings.get("drawing_number", ""),
-            label_interval=settings.get("label_interval", 5),
-            preview_points=preview_points,
-            fiscal_year=self._format_project_year_display(),
-            surveyor=self._project_record.surveyor,
-            measurement_date=self._project_record.year_reference_date,
-            operation_type=self._project_record.operation_type,
-            exclude_connecting_lines=self.excludeBranchCheck.isChecked(),
-            magnetic_declination=self.magneticDeclinationSpin.value(),
-        )
+        try:
+            files, messages = generate_export_bundle(
+                output_dir=output_dir,
+                project_name=self._project_record.project_name,
+                work_name=self._project_record.business_name,
+                scale_text=settings["scale"],
+                paper_key=settings["paper_size"],
+                background_layer_name=settings["background_layer_name"],
+                traverse_layer_ids=self._preview_layer_ids,
+                observations=observations,
+                computation=computation,
+                block_entries=block_entries,
+                summary_values=summary_values,
+                bottom_right_note=settings["bottom_right_note"],
+                drawing_number=settings.get("drawing_number", ""),
+                label_interval=settings.get("label_interval", 5),
+                preview_points=preview_points,
+                fiscal_year=self._format_project_year_display(),
+                surveyor=self._project_record.surveyor,
+                measurement_date=self._project_record.year_reference_date,
+                operation_type=self._project_record.operation_type,
+                exclude_connecting_lines=self.excludeBranchCheck.isChecked(),
+                magnetic_declination=self.magneticDeclinationSpin.value(),
+            )
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Export"),
+                self.tr(
+                    "Could not write the export files to:\n{}\n\n{}\n\nChoose "
+                    "another folder in the export dialog (Browse). On Windows this "
+                    "can also be Controlled Folder Access blocking the write -- "
+                    "allow QGIS in Windows Security, or use a folder next to your "
+                    "project."
+                ).format(output_dir, error),
+            )
+            return
         self.notebookHintLabel.setText(
             self.tr("Export finished: {}").format(files[0] if files else output_dir)
         )

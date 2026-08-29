@@ -173,6 +173,35 @@ Set Completion = 1 in the project table before exporting.</source><translation>�
 {}</source><translation>エクスポート用データを準備できませんでした。
 {}</translation></message>
     <message><source>Please select an output folder.</source><translation>出力フォルダを選択してください。</translation></message>
+    <message><source>Cannot use the output folder:
+{}
+
+{}
+
+Choose another folder in the export dialog (Browse).</source><translation>出力フォルダを使用できません:
+{}
+
+{}
+
+エクスポートダイアログの「参照」で別のフォルダを選んでください。</translation></message>
+    <message><source>The output folder is not writable:
+{}
+
+Choose another folder in the export dialog (Browse).</source><translation>出力フォルダに書き込めません:
+{}
+
+エクスポートダイアログの「参照」で別のフォルダを選んでください。</translation></message>
+    <message><source>Could not write the export files to:
+{}
+
+{}
+
+Choose another folder in the export dialog (Browse). On Windows this can also be Controlled Folder Access blocking the write -- allow QGIS in Windows Security, or use a folder next to your project.</source><translation>エクスポートファイルを書き込めませんでした:
+{}
+
+{}
+
+エクスポートダイアログの「参照」で別のフォルダを選んでください。Windows では「制御されたフォルダー アクセス」が書き込みをブロックしていることもあります。Windows セキュリティで QGIS を許可するか、プロジェクトの隣のフォルダを使ってください。</translation></message>
     <message><source>Export finished: {}</source><translation>エクスポート完了: {}</translation></message>
     <message><source>Export completed.
 {}</source><translation>エクスポートが完了しました。

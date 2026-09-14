@@ -38,12 +38,45 @@ _CSS_PAGE_SIZE = {
 }
 
 _MARGIN_MM = 12
-_HEADER_MM = 25
+_HEADER_MM = 15
 _PDF_DPI = 300
 
 
 def _tr_export(message):
     return QtCore.QCoreApplication.translate("ExportSettingsDialog", message)
+
+
+# paper_key (e.g. "A4 縦") is the internal PAPER_SIZES/_CSS_PAGE_SIZE lookup
+# key and stays untranslated everywhere it is used that way. This maps it to
+# a translatable English source string for the few places it is shown as text.
+_PAPER_KEY_SOURCE = {
+    "A4 縦": "A4 Portrait",
+    "A4 横": "A4 Landscape",
+    "A3 縦": "A3 Portrait",
+    "A3 横": "A3 Landscape",
+}
+
+
+def _tr_paper_key(paper_key):
+    return _tr_export(_PAPER_KEY_SOURCE.get(paper_key, paper_key))
+
+
+def _parse_scale_denominator(scale_text, default=1000):
+    """Parse a "1:2500", "1/2500", or plain "2500" style scale string into
+    its denominator. Used by both the map-PDF export and the on-screen
+    preview so they can never silently disagree on what a given scale field
+    means.
+    """
+    text = str(scale_text or "").strip()
+    for sep in (":", "/"):
+        if sep in text:
+            text = text.split(sep, 1)[1]
+            break
+    text = text.replace(",", "").strip()
+    try:
+        return int(text)
+    except ValueError:
+        return default
 
 
 def _station_highlight_expression(label_interval):
@@ -113,6 +146,59 @@ def _floor_ha_str(m2):
     """Return ha string truncated (not rounded) to 2 decimal places."""
     val = math.floor(m2 / 10000.0 * 100) / 100
     return f"{val:.2f} ha"
+
+
+def _abbr_html(label, title):
+    he = html_module.escape
+    return f'<abbr title="{he(title)}">{he(label)}</abbr>'
+
+
+def _print_doc_header_html(*, project_name, work_name, scale_text, paper_key, generated_at):
+    he = html_module.escape
+    tr = _tr_export
+    items = [
+        (tr("Project Name"), project_name),
+        (tr("Work Name"), work_name),
+        (tr("Output Date"), generated_at),
+        (tr("Scale"), scale_text),
+        (tr("Paper"), _tr_paper_key(paper_key)),
+    ]
+    rows = "".join(
+        f"<span><strong>{he(label)}</strong> {he(str(value or ''))}</span>"
+        for label, value in items
+    )
+    return f"<div class='print-doc-header'>{rows}</div>"
+
+
+def _normalize_distance_unit(unit):
+    return "ft" if str(unit or "").strip().lower() == "ft" else "m"
+
+
+def _normalize_inclination_unit(unit):
+    normalized = str(unit or "").strip().lower()
+    return "pct" if normalized in ("pct", "%") else "deg"
+
+
+def _inclination_unit_label(unit):
+    return "%" if _normalize_inclination_unit(unit) == "pct" else "deg"
+
+
+def _distance_to_meters(value, distance_unit):
+    if value is None or value == "":
+        return None
+    distance = float(value)
+    if _normalize_distance_unit(distance_unit) == "ft":
+        return distance * 0.3048
+    return distance
+
+
+def _inclination_to_degrees(value, inclination_unit):
+    if value is None or value == "":
+        return None
+    inclination = float(value)
+    if _normalize_inclination_unit(inclination_unit) == "pct":
+        return math.degrees(math.atan(inclination / 100.0))
+    return inclination
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +281,7 @@ class A4PreviewWidget(QtWidgets.QWidget):
         painter.drawText(
             content_rect.adjusted(4, 2, -4, -int(content_rect.height() * 0.90)),
             QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter,
-            f"1:{self._auto_scale_text or self._scale_text}  {self._paper_key}")
+            f"1:{self._auto_scale_text or self._scale_text}  {_tr_paper_key(self._paper_key)}")
         painter.end()
 
     def _draw_traverse(self, painter, content_rect):
@@ -395,11 +481,11 @@ class ExportSettingsDialog(QtWidgets.QDialog):
 
         row += 1
         form.addWidget(QtWidgets.QLabel(self.tr("Scale (1:n)")), row, 0)
-        self.scale_combo = QtWidgets.QComboBox()
-        self.scale_combo.setEditable(True)
-        self.scale_combo.lineEdit().setPlaceholderText(
+        self.scale_combo = QtWidgets.QLineEdit()
+        self.scale_combo.setPlaceholderText(
             self.tr("The recommended scale is filled in automatically.")
         )
+        self.scale_combo.editingFinished.connect(self._normalize_scale_text)
         form.addWidget(self.scale_combo, row, 1)
         self._apply_scale_btn = QtWidgets.QPushButton(self.tr("Use Recommended Scale"))
         self._apply_scale_btn.setEnabled(False)
@@ -437,6 +523,23 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         self.note_edit = QtWidgets.QLineEdit()
         self.note_edit.setPlaceholderText(self.tr("Example: Internal document"))
         form.addWidget(self.note_edit, row, 1, 1, 2)
+
+        units_group = QtWidgets.QGroupBox(self.tr("Units"))
+        units_layout = QtWidgets.QVBoxLayout(units_group)
+        units_layout.setContentsMargins(8, 8, 8, 8)
+        units_note = QtWidgets.QLabel(
+            self.tr(
+                "Distances are exported in metres, and areas in m² / ha.\n"
+                "ft can be selected as an input unit for survey-instrument "
+                "compatibility, but deliverables are converted to metres.\n"
+                "Inclination is displayed using the selected notebook unit: "
+                "degrees or percent grade."
+            )
+        )
+        units_note.setWordWrap(True)
+        units_note.setStyleSheet("color:#555;font-size:11px;")
+        units_layout.addWidget(units_note)
+        left.addWidget(units_group)
 
         left.addStretch(1)
 
@@ -618,7 +721,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
 
         # Connect settings → preview refresh
         self.paper_combo.currentTextChanged.connect(self._on_setting_changed)
-        self.scale_combo.currentTextChanged.connect(self._on_setting_changed)
+        self.scale_combo.textChanged.connect(self._on_setting_changed)
         self.background_layer_combo.currentTextChanged.connect(self._on_setting_changed)
         self.note_edit.textChanged.connect(self._on_setting_changed)
         self._nb_section_combo.currentIndexChanged.connect(self._refresh_notebook_section_detail)
@@ -642,6 +745,39 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         pal.setColor(QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor("#f5f6f7"))
         t.setPalette(pal)
         return t
+
+    def _set_preview_table_headers(self, inclination_unit):
+        inc_label = _inclination_unit_label(inclination_unit)
+        self._notebook_table.setHorizontalHeaderLabels([
+            self.tr("From"),
+            self.tr("To"),
+            self.tr("Azimuth"),
+            self.tr("True Azimuth"),
+            f"{self.tr('Inclination')} ({inc_label})",
+            self.tr("Slope Distance (m)"),
+            self.tr("Horizontal Distance (m)"),
+            self.tr("Elevation Difference (m)"),
+            self.tr("dX (m)"),
+            self.tr("dY (m)"),
+            self.tr("Connect To"),
+            self.tr("Close To"),
+            self.tr("Notes"),
+        ])
+        self._calc_table.setHorizontalHeaderLabels([
+            self.tr("From"),
+            self.tr("To"),
+            self.tr("True Azimuth"),
+            f"{self.tr('Inclination')} ({inc_label})",
+            self.tr("Slope Distance (m)"),
+            self.tr("Horizontal Distance (m)"),
+            self.tr("Elevation Difference (m)"),
+            self.tr("Y (m)"),
+            self.tr("X (m)"),
+            self.tr("Z (m)"),
+            self.tr("Double Meridian Distance (m)"),
+            self.tr("Latitude (m)"),
+            self.tr("Double Area (m²)"),
+        ])
 
     @staticmethod
     def _make_summary_table(headers):
@@ -750,7 +886,18 @@ class ExportSettingsDialog(QtWidgets.QDialog):
 
     def _apply_suggested_scale(self):
         if self._suggested_scale:
-            self.scale_combo.setCurrentText(f"1:{self._suggested_scale}")
+            self.scale_combo.setText(f"1:{self._suggested_scale}")
+
+    def _normalize_scale_text(self):
+        """Reformat whatever the user typed (e.g. "5000") into "1:5000"
+        once they finish editing (Enter or focus leaving the field)."""
+        text = self.scale_combo.text().strip()
+        if not text:
+            return
+        denom = _parse_scale_denominator(text)
+        normalized = f"1:{denom}"
+        if text != normalized:
+            self.scale_combo.setText(normalized)
 
     def _get_traverse_layers(self):
         layer_ids = self._pc.get("preview_layer_ids", [])
@@ -787,14 +934,8 @@ class ExportSettingsDialog(QtWidgets.QDialog):
     def _map_extent_for_scale(self, traverse_extent):
         """Calculate map extent for the selected scale and paper size."""
         paper_key = self.paper_combo.currentText()
-        scale_text = self.scale_combo.currentText().strip()
-        try:
-            if ":" in scale_text:
-                scale_denom = int(scale_text.split(":")[1].replace(",", ""))
-            else:
-                scale_denom = int(scale_text.replace(",", ""))
-        except (IndexError, ValueError):
-            scale_denom = 1000
+        scale_text = self.scale_combo.text().strip()
+        scale_denom = _parse_scale_denominator(scale_text)
 
         w_mm, h_mm = PAPER_SIZES.get(paper_key, (297, 210))
         content_w_m = (w_mm - 2 * _MARGIN_MM) / 1000.0 * scale_denom
@@ -825,11 +966,11 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         nice = [200, 500, 1000, 2500, 5000, 10000, 25000, 50000]
         suggested = next((s for s in nice if s >= raw), nice[-1])
         self._suggested_scale = suggested
-        self._auto_scale_label.setText(f"推奨縮尺: 1:{suggested:,}")
+        self._auto_scale_label.setText(f"{self.tr('Suggested Scale')}: 1:{suggested:,}")
         self._apply_scale_btn.setEnabled(True)
         # Auto-populate if the field is still empty
-        if not self.scale_combo.currentText().strip():
-            self.scale_combo.setCurrentText(f"1:{suggested}")
+        if not self.scale_combo.text().strip():
+            self.scale_combo.setText(f"1:{suggested}")
 
     def _refresh_map_canvases(self):
         if not _HAS_MAP_CANVAS:
@@ -873,7 +1014,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             paper_key=self.paper_combo.currentText(),
             project_name=self._pc.get("project_name", ""),
             work_name=self._pc.get("work_name", ""),
-            scale_text=self.scale_combo.currentText(),
+            scale_text=self.scale_combo.text(),
             note_text=self.note_edit.text().strip(),
             points=self._pc.get("preview_points", []),
         )
@@ -884,6 +1025,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         pc = self._pc
         observations = pc.get("observations", [])
         computation = pc.get("computation")
+        self._set_preview_table_headers(pc.get("inclination_unit", "deg"))
         block_entries = _normalized_block_entries(
             observations=observations,
             computation=computation,
@@ -905,10 +1047,10 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             computation=computation,
             block_entries=pc.get("block_entries", []),
         )
-        area_entries, _line_entries, is_area_mode = _classify_block_entries(block_entries)
+        area_entries, _line_entries, _classified_area_mode = _classify_block_entries(block_entries)
         main_line_entries, _excluded_line_entries = _build_line_notebook_entries(block_entries)
         sum_sd = sum(
-            _entry_sum_sd(entry)
+            _entry_sum_sd(entry, distance_unit=pc.get("distance_unit", "m"))
             for entry in main_line_entries
         )
         sum_hd = sum(
@@ -917,16 +1059,12 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         )
         area_total_m2 = sum(_entry_area_m2(entry) for entry in area_entries)
         area_total_ha = sum(math.floor(_entry_area_m2(e) / 10000.0 * 100) / 100 for e in area_entries)
-        right_label_1 = (
-            self.tr("Area Total")
-            if is_area_mode else self.tr("Length Total (Slope Distance)")
-        )
-        right_value_1 = (
-            f"{area_total_ha:.2f} ha" if is_area_mode and area_total_m2
-            else (_fmt(sum_sd) + " m" if sum_sd else "")
-        )
-        right_label_2 = "" if is_area_mode else self.tr("Length Total (Horizontal Distance)")
-        right_value_2 = "" if is_area_mode else (_fmt(sum_hd) + " m" if sum_hd else "")
+        # An aggregate worst-case ratio was found confusing; point to the
+        # per-area detail sheet instead.
+        ratio_str = self.tr("See Area Calculation Sheet")
+        has_area = bool(area_entries) and bool(area_total_m2)
+        has_length = bool(main_line_entries) and bool(sum_sd or sum_hd)
+
         grid = [
             (
                 self.tr("Project Name"),
@@ -940,9 +1078,27 @@ class ExportSettingsDialog(QtWidgets.QDialog):
                 self.tr("Measurement Date"),
                 pc.get("measurement_date", ""),
             ),
-            (self.tr("Fiscal Year"), pc.get("fiscal_year", ""), right_label_1, right_value_1),
-            (self.tr("Operation Type"), pc.get("operation_type", ""), right_label_2, right_value_2),
+            (
+                self.tr("Fiscal Year"),
+                pc.get("fiscal_year", ""),
+                self.tr("Operation Type"),
+                pc.get("operation_type", ""),
+            ),
         ]
+        if has_area:
+            grid.append((
+                self.tr("Area Total"),
+                f"{area_total_ha:.2f} ha" if area_total_m2 else "",
+                self.tr("Precision (/)"),
+                ratio_str,
+            ))
+        if has_length:
+            grid.append((
+                self.tr("Length Total (Slope Distance)"),
+                _fmt(sum_sd) + " m" if sum_sd else "",
+                self.tr("Length Total (Horizontal Distance)"),
+                _fmt(sum_hd) + " m" if sum_hd else "",
+            ))
         t.setRowCount(len(grid))
         for i, (k1, v1, k2, v2) in enumerate(grid):
             for j, text in enumerate((k1, v1, k2, v2)):
@@ -969,6 +1125,8 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             exclude_connecting_lines=exclude_lines,
             tr_label=self._preview_label,
             magnetic_declination=float(self._pc.get("magnetic_declination", 0.0)),
+            distance_unit=self._pc.get("distance_unit", "m"),
+            inclination_unit=self._pc.get("inclination_unit", "deg"),
         )
         self._fill_summary_table(
             self._nb_export_summary_table,
@@ -976,6 +1134,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
                 block_entries,
                 exclude_connecting_lines=exclude_lines,
                 tr_label=self._preview_label,
+                distance_unit=self._pc.get("distance_unit", "m"),
             ),
         )
         current_key = self._nb_section_combo.currentData()
@@ -1014,6 +1173,8 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             work_name=pc.get("work_name", ""),
             note_text=self.note_edit.text().strip(),
             tr_label=self._preview_label,
+            distance_unit=pc.get("distance_unit", "m"),
+            inclination_unit=pc.get("inclination_unit", "deg"),
         )
         self._fill_summary_table(
             self._calc_export_summary_table,
@@ -1133,7 +1294,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         html_text = _build_table_html(
             project_name=pc.get("project_name", ""),
             work_name=pc.get("work_name", ""),
-            scale_text=self.scale_combo.currentText(),
+            scale_text=self.scale_combo.text(),
             paper_key="A4 縦",
             note_text=self.note_edit.text().strip(),
             observations=observations,
@@ -1145,6 +1306,8 @@ class ExportSettingsDialog(QtWidgets.QDialog):
             block_entries=pc.get("block_entries", []),
             exclude_connecting_lines=bool(pc.get("exclude_connecting_lines", False)),
             magnetic_declination=float(pc.get("magnetic_declination", 0.0)),
+            distance_unit=pc.get("distance_unit", "m"),
+            inclination_unit=pc.get("inclination_unit", "deg"),
         )
         if self._tmp_html_path is None:
             fd, path = tempfile.mkstemp(suffix=".html", prefix="ct_table_")
@@ -1161,7 +1324,7 @@ class ExportSettingsDialog(QtWidgets.QDialog):
         return {
             "output_dir": self.output_dir_edit.text().strip(),
             "paper_size": self.paper_combo.currentText(),
-            "scale": self.scale_combo.currentText(),
+            "scale": self.scale_combo.text(),
             "background_layer_name": background_layer_name,
             "bottom_right_note": self.note_edit.text().strip(),
             "drawing_number": self.drawing_number_edit.text().strip(),
@@ -1286,10 +1449,7 @@ def export_map_to_pdf(path, *, traverse_layer_ids, background_layer_name,
     if combined.isEmpty():
         return False, "トラバースレイヤーの範囲が取得できません。"
 
-    try:
-        scale_denom = int(scale_text.split(":")[1])
-    except (IndexError, ValueError):
-        scale_denom = 1000
+    scale_denom = _parse_scale_denominator(scale_text)
 
     w_mm, h_mm = PAPER_SIZES.get(paper_key, (297, 210))
     content_w_m = (w_mm - 2 * _MARGIN_MM) / 1000.0 * scale_denom
@@ -1353,10 +1513,10 @@ def _pt_px(pt):
     return max(8, int(pt * _PDF_DPI / 72.0))
 
 
-def _draw_title_block(painter, left, top, width, height, mm_to_px,
+def _draw_title_block(painter, left, top, width, height,
                       project_name, work_name, drawing_number, scale_denom):
     """Draw 2-row × 2-column title block."""
-    from qgis.PyQt.QtGui import QFont, QPen, QColor
+    from qgis.PyQt.QtGui import QFont, QPen, QColor, QFontMetrics
     from qgis.PyQt.QtCore import QRect, Qt
 
     thin = QPen(QColor(0, 0, 0))
@@ -1364,10 +1524,33 @@ def _draw_title_block(painter, left, top, width, height, mm_to_px,
     painter.setPen(thin)
 
     row_h = height / 2.0
-    mid_x = left + width / 2.0
+    # プロジェクト/作業区分 側は値が長くなりやすく、図面番号/縮尺 側は短い値が
+    # ほとんどなので、幅を50/50ではなく60/40に配分する。
+    mid_x = left + width * 0.6
 
-    lbl_w = 10 * mm_to_px    # 名称/事業名 label column
-    r_lbl_w = 14 * mm_to_px  # 図面番号/縮尺 label column
+    lbl_font = QFont("Meiryo")
+    lbl_font.setPixelSize(_pt_px(7))
+    val_font = QFont("Meiryo")
+    val_font.setPixelSize(_pt_px(8))
+
+    lbl_project = _tr_export("Project Name")
+    lbl_work = _tr_export("Work Name")
+    lbl_drawing_number = _tr_export("Drawing Number")
+    lbl_scale = _tr_export("Scale")
+
+    # Label column widths follow the actual (translated) label text so longer
+    # labels are not clipped by a fixed mm guess. label_pad leaves a visible
+    # gap between the label text and the column border.
+    lbl_metrics = QFontMetrics(lbl_font)
+    label_pad = 16
+    lbl_w = max(
+        lbl_metrics.horizontalAdvance(lbl_project),
+        lbl_metrics.horizontalAdvance(lbl_work),
+    ) + label_pad
+    r_lbl_w = max(
+        lbl_metrics.horizontalAdvance(lbl_drawing_number),
+        lbl_metrics.horizontalAdvance(lbl_scale),
+    ) + label_pad
 
     # Grid lines
     painter.drawLine(int(left), int(top + row_h), int(left + width), int(top + row_h))
@@ -1375,35 +1558,35 @@ def _draw_title_block(painter, left, top, width, height, mm_to_px,
     painter.drawLine(int(left + lbl_w), int(top), int(left + lbl_w), int(top + height))
     painter.drawLine(int(mid_x + r_lbl_w), int(top), int(mid_x + r_lbl_w), int(top + height))
 
-    lbl_font = QFont("Meiryo")
-    lbl_font.setPixelSize(_pt_px(7))
-    val_font = QFont("Meiryo")
-    val_font.setPixelSize(_pt_px(8))
-
     def draw_lbl(x, y, w, h, text):
         painter.setFont(lbl_font)
         painter.setPen(QPen(QColor(80, 80, 80)))
-        painter.drawText(QRect(int(x) + 3, int(y) + 2, int(w) - 4, int(h) - 4),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        painter.drawText(QRect(int(x), int(y) + 2, int(w), int(h) - 4),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, text)
+
+    val_metrics = QFontMetrics(val_font)
 
     def draw_val(x, y, w, h, text):
+        # Long values (e.g. a long project name) are elided with "…" rather
+        # than overflowing into the next column or being clipped mid-glyph.
         painter.setFont(val_font)
         painter.setPen(QPen(QColor(0, 0, 0)))
-        painter.drawText(QRect(int(x) + 4, int(y) + 2, int(w) - 6, int(h) - 4),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        rect = QRect(int(x), int(y) + 2, int(w), int(h) - 4)
+        elided = val_metrics.elidedText(text, Qt.TextElideMode.ElideRight, rect.width() - 6)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, elided)
 
-    # Row 0: 名称 | project_name | 図面番号 | drawing_number
+    # Row 0: Project | project_name | Drawing Number | drawing_number
     val1_w = mid_x - left - lbl_w
     val2_w = left + width - mid_x - r_lbl_w
-    draw_lbl(left, top, lbl_w, row_h, "名称")
+    draw_lbl(left, top, lbl_w, row_h, lbl_project)
     draw_val(left + lbl_w, top, val1_w, row_h, project_name or "")
-    draw_lbl(mid_x, top, r_lbl_w, row_h, "図面番号")
+    draw_lbl(mid_x, top, r_lbl_w, row_h, lbl_drawing_number)
     draw_val(mid_x + r_lbl_w, top, val2_w, row_h, drawing_number or "")
 
-    # Row 1: 事業名 | work_name | 縮尺 | scale
-    draw_lbl(left, top + row_h, lbl_w, row_h, "事業名")
+    # Row 1: Work Name | work_name | Scale | scale
+    draw_lbl(left, top + row_h, lbl_w, row_h, lbl_work)
     draw_val(left + lbl_w, top + row_h, val1_w, row_h, work_name or "")
-    draw_lbl(mid_x, top + row_h, r_lbl_w, row_h, "縮尺")
+    draw_lbl(mid_x, top + row_h, r_lbl_w, row_h, lbl_scale)
     draw_val(mid_x + r_lbl_w, top + row_h, val2_w, row_h,
              f"1:{scale_denom:,}" if scale_denom else "")
 
@@ -1453,7 +1636,7 @@ def _draw_north_arrow(painter, left, top, width, height, rotation_deg=0.0):
 
 def _draw_scale_bar(painter, left, top, width, height, scale_denom, mm_to_px):
     """Draw alternating black/white scale bar with distance labels."""
-    from qgis.PyQt.QtGui import QFont, QPen, QColor
+    from qgis.PyQt.QtGui import QFont, QPen, QColor, QFontMetrics
     from qgis.PyQt.QtCore import QRect, Qt
 
     # Compute nice segment distance
@@ -1466,8 +1649,22 @@ def _draw_scale_bar(painter, left, top, width, height, scale_denom, mm_to_px):
     total_px = seg_px * n_segs
 
     bar_h = max(5, int(height * 0.24))
-    bar_y = top + int(height * 0.18)
-    bar_x = left + (width - total_px) // 2
+
+    fsz = _pt_px(6)
+    f = QFont("Arial")
+    f.setPixelSize(fsz)
+    unit_gap = 4
+    unit_w = QFontMetrics(f).horizontalAdvance("m")
+    # Centre the whole assembly (bar + trailing "m" label), not just the bar,
+    # so the visible content is horizontally centred within the box.
+    bar_x = left + (width - total_px - unit_gap - unit_w) // 2
+
+    # Centre the bar + its label row vertically within the box, instead of a
+    # fixed top offset that leaves a large, unbalanced gap below the labels.
+    label_row_gap = 2
+    label_row_h = fsz + 4
+    content_h = bar_h + label_row_gap + label_row_h
+    bar_y = int(top + (height - content_h) / 2)
 
     thin = QPen(QColor(0, 0, 0))
     thin.setWidth(1)
@@ -1480,12 +1677,9 @@ def _draw_scale_bar(painter, left, top, width, height, scale_denom, mm_to_px):
         else:
             painter.fillRect(sr, QColor(255, 255, 255))
         painter.setPen(thin)
-        painter.setBrush(QtWidgets.QApplication.palette().base())
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(sr)
 
-    fsz = _pt_px(6)
-    f = QFont("Arial")
-    f.setPixelSize(fsz)
     painter.setFont(f)
     painter.setPen(QPen(QColor(0, 0, 0)))
     lbl_y = bar_y + bar_h + 2
@@ -1493,8 +1687,14 @@ def _draw_scale_bar(painter, left, top, width, height, scale_denom, mm_to_px):
     for i in range(n_segs + 1):
         lx = bar_x + i * seg_px
         txt = str(int(i * seg_m))
-        painter.drawText(QRect(lx - 22, lbl_y, 44, fsz + 4),
-                         Qt.AlignmentFlag.AlignCenter, txt)
+        if i == n_segs:
+            # Right-align the last tick so its digits end at the bar's edge,
+            # leaving the "m" unit label after it instead of overlapping it.
+            painter.drawText(QRect(lx - 40, lbl_y, 40, fsz + 4),
+                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, txt)
+        else:
+            painter.drawText(QRect(lx - 22, lbl_y, 44, fsz + 4),
+                             Qt.AlignmentFlag.AlignCenter, txt)
 
     painter.drawText(QRect(bar_x + total_px + 4, lbl_y, 28, fsz + 4),
                      Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "m")
@@ -1763,21 +1963,14 @@ def _draw_branch_legend(painter, block_entries, map_rect, mm_to_px):
     f.setPixelSize(fsz)
     margin = int(4 * mm_to_px)
     box_size = fsz
-    text = "除外区間"
+    text = _tr_export("Excluded Segment")
 
-    fm = QtGui.QFontMetrics(f)
-    text_w = fm.horizontalAdvance(text)
-    total_w = box_size + int(2 * mm_to_px) + text_w + margin * 2
     total_h = box_size + margin * 2
 
     lx = map_rect.left() + margin
     ly = map_rect.bottom() - total_h - margin
 
-    # Background
     painter.save()
-    painter.setPen(QPen(QColor(180, 180, 180)))
-    painter.setBrush(QBrush(QColor(255, 255, 255, 200)))
-    painter.drawRect(QRect(lx, ly, total_w, total_h))
 
     # Yellow square (■)
     sq_x = lx + margin
@@ -1792,6 +1985,53 @@ def _draw_branch_legend(painter, block_entries, map_rect, mm_to_px):
     tx = sq_x + box_size + int(2 * mm_to_px)
     ty = sq_y + box_size
     painter.drawText(tx, ty, text)
+
+    painter.restore()
+
+
+def _draw_area_precision_legend(painter, block_entries, map_rect, mm_to_px):
+    """Draw each area's closure precision (e.g. "Area A : 1/52") in the
+    lower-right corner of the map area."""
+    from qgis.PyQt.QtGui import QFont, QPen, QColor
+
+    if not block_entries:
+        return
+
+    lines = []
+    for entry in block_entries:
+        if not _is_area_entry(entry):
+            continue
+        comp = entry.get("computation")
+        if comp is None:
+            continue
+        ratio_val = comp.closure_ratio()
+        if ratio_val is None or not math.isfinite(ratio_val):
+            continue
+        block_name = entry.get("block_name") or entry.get("block_id") or ""
+        lines.append(f"{block_name} : 1/{int(round(ratio_val))}")
+
+    if not lines:
+        return
+
+    fsz = _pt_px(7)
+    f = QFont("Meiryo")
+    f.setPixelSize(fsz)
+    fm = QtGui.QFontMetrics(f)
+    margin = int(4 * mm_to_px)
+    line_h = fsz + 10
+    text_w = max(fm.horizontalAdvance(line) for line in lines)
+    total_w = text_w + margin * 2
+    total_h = line_h * len(lines) + margin * 2
+
+    lx = map_rect.right() - total_w - margin
+    ly = map_rect.bottom() - total_h - margin
+
+    painter.save()
+    painter.setFont(f)
+    painter.setPen(QPen(QColor(0, 0, 0)))
+    for i, line in enumerate(lines):
+        ty = ly + margin + line_h * (i + 1) - 3
+        painter.drawText(lx + margin, ty, line)
 
     painter.restore()
 
@@ -1840,6 +2080,7 @@ def _render_pdf_page(painter, layers, extent, map_rect,
         if show_labels:
             _draw_block_name_labels(painter, block_entries, extent, map_rect)
         _draw_branch_legend(painter, block_entries, map_rect, mm_to_px)
+        _draw_area_precision_legend(painter, block_entries, map_rect, mm_to_px)
 
     # ── Header zone ───────────────────────────────────────────────────────────
     # Layout: left 60% = title block | right 40%: left 65% = scale bar | right 35% = north arrow
@@ -1853,7 +2094,6 @@ def _render_pdf_page(painter, layers, extent, map_rect,
     _draw_title_block(painter,
                       left=float(content_left), top=float(content_top),
                       width=float(title_w), height=float(header_px),
-                      mm_to_px=mm_to_px,
                       project_name=project_name, work_name=work_name,
                       drawing_number=drawing_number, scale_denom=scale_denom)
 
@@ -1900,7 +2140,8 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                            project_name="", work_name="", fiscal_year="",
                            surveyor="", measurement_date="", operation_type="",
                            block_entries=None, exclude_connecting_lines=False,
-                           magnetic_declination=0.0):
+                           magnetic_declination=0.0,
+                           distance_unit="m", inclination_unit="deg"):
     he = html_module.escape
     tr = _tr_export
     block_entries = _normalized_block_entries(
@@ -1910,11 +2151,11 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
     )
     if not block_entries:
         return f"<p>{he(tr('No observation data'))}</p>"
-    area_entries, _line_entries, is_area_mode = _classify_block_entries(block_entries)
+    area_entries, _line_entries, _classified_area_mode = _classify_block_entries(block_entries)
     main_line_entries, excluded_line_entries = _build_line_notebook_entries(block_entries)
     area_entries = sorted(area_entries, key=lambda e: str(e.get("block_name") or e.get("block_id") or ""))
     sum_sd = sum(
-        _entry_sum_sd(entry)
+        _entry_sum_sd(entry, distance_unit=distance_unit)
         for entry in main_line_entries
     )
     sum_hd = sum(
@@ -1954,21 +2195,72 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
 </tr>
 </table>"""
 
-    overview_html = _info_html(
-        tr("Area Total") if is_area_mode else tr("Length Total (Slope Distance)"),
-        (
-            f"{area_total_ha:.2f} ha"
-            if is_area_mode and area_total_m2
-            else (_fmt(sum_sd) + " m" if sum_sd else "")
-        ),
-        "" if is_area_mode else tr("Length Total (Horizontal Distance)"),
-        "" if is_area_mode else (_fmt(sum_hd) + " m" if sum_hd else ""),
-    )
+    def _overview_info_html():
+        # Fiscal Year/Operation Type are always shown; Area Total/Precision and
+        # the length totals are each their own row, shown only when that kind
+        # of as-built data actually exists (an area+route mix no longer hides
+        # the area row behind the route-length row, or vice versa). An
+        # aggregate worst-case ratio was found confusing, so this points to
+        # the per-area detail sheet instead.
+        ratio_str = tr("See Area Calculation Sheet")
+        has_area = bool(area_entries) and bool(area_total_m2)
+        has_length = bool(main_line_entries) and bool(sum_sd or sum_hd)
+
+        rows_html = [
+            f"""<tr>
+  <th style="text-align:left">{he(tr("Project Name"))}</th>
+  <td>{he(project_name)}</td>
+  <th style="text-align:left">{he(tr("Surveyor"))}</th>
+  <td>{he(surveyor)}</td>
+</tr>""",
+            f"""<tr>
+  <th style="text-align:left">{he(tr("Work Name"))}</th>
+  <td>{he(work_name)}</td>
+  <th style="text-align:left">{he(tr("Measurement Date"))}</th>
+  <td>{he(measurement_date)}</td>
+</tr>""",
+            f"""<tr>
+  <th style="text-align:left">{he(tr("Fiscal Year"))}</th>
+  <td>{he(fiscal_year)}</td>
+  <th style="text-align:left">{he(tr("Operation Type"))}</th>
+  <td>{he(operation_type)}</td>
+</tr>""",
+        ]
+        if has_area:
+            area_value = f"{area_total_ha:.2f} ha" if area_total_m2 else ""
+            rows_html.append(f"""<tr>
+  <th style="text-align:left">{he(tr("Area Total"))}</th>
+  <td style="text-align:right">{he(area_value)}</td>
+  <th style="text-align:left">{he(tr("Precision (/)"))}</th>
+  <td style="text-align:right">{he(ratio_str)}</td>
+</tr>""")
+        if has_length:
+            sd_value = _fmt(sum_sd) + " m" if sum_sd else ""
+            hd_value = _fmt(sum_hd) + " m" if sum_hd else ""
+            rows_html.append(f"""<tr>
+  <th style="text-align:left">{he(tr("Length Total (Slope Distance)"))}</th>
+  <td style="text-align:right">{he(sd_value)}</td>
+  <th style="text-align:left">{he(tr("Length Total (Horizontal Distance)"))}</th>
+  <td style="text-align:right">{he(hd_value)}</td>
+</tr>""")
+
+        # A colgroup keeps both label columns the same width as each other,
+        # and both value columns the same width as each other, regardless of
+        # how long any one row's label/value text happens to be.
+        return (
+            '<table style="margin-bottom:6px;font-size:11px;width:100%;table-layout:fixed;">\n'
+            '<colgroup><col style="width:20%"><col style="width:30%">'
+            '<col style="width:20%"><col style="width:30%"></colgroup>\n'
+            + "\n".join(rows_html)
+            + "\n</table>"
+        )
+
+    overview_html = _overview_info_html()
 
     def _area_block_html(entry):
         block_name = entry.get("block_name") or entry.get("block_id") or ""
         area_m2 = _entry_area_m2(entry)
-        slope_total = _entry_sum_sd(entry)
+        slope_total = _entry_sum_sd(entry, distance_unit=distance_unit)
         return (
             f"<h4 style=\"margin:10px 0 6px\">{he(str(block_name))}</h4>"
             + _info_html(
@@ -1992,8 +2284,13 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                 leg_map[(leg.from_station, leg.target_station)] = leg
         rows_html = ""
         for obs in entry.get("observations", []):
-            dz = _height_diff_from_obs(obs)
+            dz = _height_diff_from_obs(obs, distance_unit, inclination_unit)
             leg = leg_map.get((obs.from_station, obs.target_station))
+            sd_m = _distance_to_meters(obs.slope_distance, distance_unit)
+            hd_m = leg.horizontal_distance if leg else _distance_to_meters(
+                obs.horizontal_distance,
+                distance_unit,
+            )
             dx = leg.delta_x if leg else None
             dy = leg.delta_y if leg else None
             note_parts = [str(obs.note or "").strip()]
@@ -2014,8 +2311,8 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                 f"<td style='text-align:right'>{_fmt_d(raw_az)}</td>"
                 f"<td style='text-align:right'>{true_az_str}</td>"
                 f"<td style='text-align:right'>{_fmt_d(obs.inclination)}</td>"
-                f"<td style='{distance_style}'>{_fmt_d(obs.slope_distance)}</td>"
-                f"<td style='{distance_style}'>{_fmt_d(obs.horizontal_distance)}</td>"
+                f"<td style='{distance_style}'>{_fmt_d(sd_m)}</td>"
+                f"<td style='{distance_style}'>{_fmt_d(hd_m)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(dz)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(dx)}</td>"
                 f"<td style='text-align:right'>{_fmt_d(dy)}</td>"
@@ -2026,7 +2323,11 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             )
         if add_subtotal:
             subtotal_sd = _fmt_d(
-                _entry_sum_sd(entry, include_excluded_obs=subtotal_include_excluded)
+                _entry_sum_sd(
+                    entry,
+                    include_excluded_obs=subtotal_include_excluded,
+                    distance_unit=distance_unit,
+                )
             )
             subtotal_hd = _fmt_d(
                 _entry_sum_hd(entry, include_excluded_obs=subtotal_include_excluded)
@@ -2059,12 +2360,13 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
         "close_to": he(tr("Close To")),
         "notes": he(tr("Notes")),
     }
+    inclination_unit_label = he(_inclination_unit_label(inclination_unit))
     table_open = (
         '<table>\n<thead>\n<tr>\n'
         f'  <th rowspan="2">{header_labels["from"]}</th><th rowspan="2">{header_labels["to"]}</th>\n'
         f'  <th rowspan="2">{header_labels["azimuth"]}</th>'
         f'<th rowspan="2">{header_labels["true_azimuth"]}<br>{header_labels["declination_note"]}</th>'
-        f'<th rowspan="2">{header_labels["inclination"]}</th>\n'
+        f'<th>{header_labels["inclination"]}</th>\n'
         f'  <th>{header_labels["slope"]}</th><th>{header_labels["horizontal"]}</th>'
         f'<th>{header_labels["elevation_diff"]}</th>\n'
         '  <th>△X</th><th>△Y</th>\n'
@@ -2072,7 +2374,7 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
         f'<th rowspan="2">{header_labels["close_to"]}</th>'
         f'<th rowspan="2">{header_labels["notes"]}</th>\n'
         '</tr>\n'
-        '<tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>\n'
+        f'<tr><th>{inclination_unit_label}</th><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>\n'
         '</thead>\n'
         '<tbody>'
     )
@@ -2091,9 +2393,9 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
             )
     else:
         sections.append(f"<section class='notebook-intro'>{''.join(intro_parts)}</section>")
-    if main_line_entries:
+    if main_line_entries or excluded_line_entries:
         sum_sd = sum(
-            _entry_sum_sd(entry)
+            _entry_sum_sd(entry, distance_unit=distance_unit)
             for entry in main_line_entries
         )
         sum_hd = sum(
@@ -2108,17 +2410,17 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
         )
 
         line_sections = []
-        first_main = True
+        first_line_section = True
         for entry_type, entry in _iter_line_display_entries(main_line_entries, excluded_line_entries):
             block_name = entry.get("block_name") or entry.get("block_id") or ""
             if entry_type == "main":
-                if first_main:
+                if first_line_section:
                     line_sections.append(
                         f"<section class='notebook-block notebook-page-break'>"
                         f"<h3>{he(tr('Line Survey Notebook'))}</h3><h4>{he(str(block_name))}</h4>{info_html}\n"
                         f"{table_open}{_rows_html(entry, add_subtotal=True)}{table_close}</section>"
                     )
-                    first_main = False
+                    first_line_section = False
                 else:
                     line_sections.append(
                         f"<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>\n"
@@ -2127,23 +2429,34 @@ def _section_notebook_html(observations, paper_key, computation=None, *,
                 continue
             excluded_info_html = _info_html(
                 tr("Slope Distance Total"),
-                _fmt_d(_entry_sum_sd(entry, include_excluded_obs=True)) + " m",
+                _fmt_d(
+                    _entry_sum_sd(
+                        entry,
+                        include_excluded_obs=True,
+                        distance_unit=distance_unit,
+                    )
+                ) + " m",
                 tr("Horizontal Distance Total"),
                 _fmt_d(_entry_sum_hd(entry, include_excluded_obs=True)) + " m",
             )
             excluded_rows_html = _rows_html(entry, add_subtotal=True, subtotal_include_excluded=True)
+            prefix_heading = f"<h3>{he(tr('Line Survey Notebook'))}</h3>" if first_line_section else ""
+            block_heading = "h4" if first_line_section else "h3"
             line_sections.append(
-                f"<section class='notebook-block notebook-page-break'><h3>{he(str(block_name))}</h3>"
+                f"<section class='notebook-block notebook-page-break'>{prefix_heading}"
+                f"<{block_heading}>{he(str(block_name))}</{block_heading}>"
                 f"{excluded_info_html}\n"
                 f"{table_open}{excluded_rows_html}{table_close}</section>"
             )
+            first_line_section = False
         sections.extend(line_sections)
 
     return "".join(sections) if sections else f"<p>{he(tr('No observation data'))}</p>"
 
 
 def _section_area_calc_html(*, observations, computation, project_name,
-                            work_name, note_text, paper_key, block_entries=None):
+                            work_name, note_text, paper_key, block_entries=None,
+                            distance_unit="m", inclination_unit="deg"):
     he = html_module.escape
     tr = _tr_export
     block_entries = _normalized_block_entries(
@@ -2161,11 +2474,24 @@ def _section_area_calc_html(*, observations, computation, project_name,
         _area_summary_html(area_entries, heading=tr("Area Summary")),
     ]
 
+    def _short_header(source, _english_abbr_unused=None):
+        # Always use the full translated header text, matching the survey
+        # notebook table's headers. Falling back to an English abbreviation
+        # here (when no Japanese translation applies) made this table's
+        # columns render noticeably narrower than the notebook table in an
+        # English-language export.
+        return tr(source)
+
     def _calc_block_html(entry):
         observations = entry.get("observations", [])
         computation = entry.get("computation")
         obs_map = {(o.from_station, o.target_station): o for o in (observations or [])}
-        dmd_rows_list, totals = _dmd_rows(computation, obs_map)
+        dmd_rows_list, totals = _dmd_rows(
+            computation,
+            obs_map,
+            distance_unit=distance_unit,
+            inclination_unit=inclination_unit,
+        )
 
         closure = computation.latest_closure()
         err_dist = closure.error_distance if closure else 0.0
@@ -2188,7 +2514,7 @@ def _section_area_calc_html(*, observations, computation, project_name,
 
         header_html = f"""
 <h4 style="margin:10px 0 6px">{he(str(block_name))}</h4>
-<table style="margin-bottom:6px;font-size:11px;">
+<table class="calc-sheet-meta" style="margin-bottom:6px;font-size:11px;">
 <tr>
   <th style="text-align:left;width:6em">{he(tr("Project Name"))}</th>
   <td colspan="3">{he(project_name)}</td>
@@ -2229,58 +2555,86 @@ def _section_area_calc_html(*, observations, computation, project_name,
         for r in dmd_rows_list:
             rows_html += (
                 f"<tr>"
-                f"<td>{he(r['from'])}</td><td>{he(r['to'])}</td>"
-                f"<td style='text-align:right'>{r['az']}</td>"
-                f"<td style='text-align:right'>{r['inc']}</td>"
-                f"<td style='text-align:right'>{r['sd']}</td>"
-                f"<td style='text-align:right'>{r['hd']}</td>"
-                f"<td style='text-align:right'>{r['dz']}</td>"
-                f"<td style='text-align:right'>{r['y_coord']}</td>"
-                f"<td style='text-align:right'>{r['x_coord']}</td>"
-                f"<td style='text-align:right'>{r['z_coord']}</td>"
-                f"<td style='text-align:right'>{r['dmd']}</td>"
-                f"<td style='text-align:right'>{r['lat']}</td>"
-                f"<td style='text-align:right'>{r['double_area']}</td>"
+                f"<td class='station'>{he(r['from'])}</td><td class='station'>{he(r['to'])}</td>"
+                f"<td class='num'>{r['az']}</td>"
+                f"<td class='num'>{r['inc']}</td>"
+                f"<td class='num'>{r['sd']}</td>"
+                f"<td class='num'>{r['hd']}</td>"
+                f"<td class='num'>{r['dz']}</td>"
+                f"<td class='num'>{r['y_coord']}</td>"
+                f"<td class='num'>{r['x_coord']}</td>"
+                f"<td class='num'>{r['z_coord']}</td>"
+                f"<td class='num'>{r['dmd']}</td>"
+                f"<td class='num'>{r['lat']}</td>"
+                f"<td class='num'>{r['double_area']}</td>"
                 f"</tr>\n"
             )
         rows_html += (
             f"<tr style='font-weight:bold;background:#f0f4f8;'>"
             f"<td colspan='2'>{he(tr('Total'))}</td><td></td><td></td>"
-            f"<td style='text-align:right'>{_fmt_d(totals.get('sum_sd'))}</td>"
-            f"<td style='text-align:right'>{_fmt_d(totals.get('sum_hd'))}</td>"
-            f"<td style='text-align:right'>{_fmt_d(totals.get('sum_dz'))}</td>"
+            f"<td class='num'>{_fmt_d(totals.get('sum_sd'))}</td>"
+            f"<td class='num'>{_fmt_d(totals.get('sum_hd'))}</td>"
+            f"<td class='num'>{_fmt_d(totals.get('sum_dz'))}</td>"
             f"<td></td><td></td><td></td><td></td><td></td>"
-            f"<td style='text-align:right'>{_fmt_d(totals.get('sum_double_area'))}</td>"
+            f"<td class='num'>{_fmt_d(totals.get('sum_double_area'))}</td>"
             f"</tr>\n"
             f"<tr style='font-weight:bold;background:#fff3cd;'>"
             f"<td colspan='12' style='text-align:right'>{he(tr('Area = |ΣDouble Area| / 2 ='))}</td>"
-            f"<td style='text-align:right'>{area_m2:.4f} m²</td>"
+            f"<td class='num'>{area_m2:.4f} m²</td>"
             f"</tr>\n"
         )
 
+        th_true_az = _abbr_html(
+            _short_header("True Azimuth", "True Az."),
+            tr("True Azimuth") + " " + tr("(after declination correction)"),
+        )
+        th_inclination = _abbr_html(_short_header("Inclination", "Incl."), tr("Inclination"))
+        th_slope = _abbr_html(_short_header("Slope", "Slope"), tr("Slope"))
+        th_horizontal = _abbr_html(_short_header("Horizontal", "Horiz."), tr("Horizontal"))
+        th_elev_diff = _abbr_html(
+            _short_header("Elevation Difference", "Elev. Diff."), tr("Elevation Difference")
+        )
+        th_dmd = _abbr_html(
+            _short_header("Double Meridian Distance", "DMD"), tr("Double Meridian Distance")
+        )
+        th_latitude = _abbr_html(_short_header("Latitude", "Lat."), tr("Latitude"))
+        th_double_area = _abbr_html(_short_header("Double Area", "Dbl. Area"), tr("Double Area"))
+
         table_html = (
-            "\n<table>\n<thead>\n<tr>\n"
+            "\n<div class=\"calc-table-wrap\"><table class=\"calc-sheet-table\">\n"
+            "<colgroup>"
+            "<col style='width:5.5%'><col style='width:5.5%'><col style='width:8%'>"
+            "<col style='width:6%'><col style='width:7%'><col style='width:7%'>"
+            "<col style='width:8%'><col style='width:8.5%'><col style='width:8.5%'>"
+            "<col style='width:6.5%'><col style='width:9.5%'><col style='width:8%'>"
+            "<col style='width:11%'>"
+            "</colgroup>\n<thead>\n<tr>\n"
             f'  <th rowspan="2">{he(tr("From"))}</th><th rowspan="2">{he(tr("To"))}</th>\n'
-            f'  <th rowspan="2">{he(tr("True Azimuth"))}<br>{he(tr("(after declination correction)"))}</th>'
-            f'<th rowspan="2">{he(tr("Inclination"))}</th>\n'
-            f'  <th>{he(tr("Slope"))}</th><th>{he(tr("Horizontal"))}</th>'
-            f'<th>{he(tr("Elevation Difference"))}</th>\n'
+            f'  <th rowspan="2">{th_true_az}</th><th>{th_inclination}</th>\n'
+            f'  <th>{th_slope}</th><th>{th_horizontal}</th><th>{th_elev_diff}</th>\n'
             '  <th>Y</th><th>X</th><th>Z</th>\n'
-            f'  <th rowspan="2">{he(tr("Double Meridian Distance"))}</th>'
-            f'<th rowspan="2">{he(tr("Latitude"))}</th><th rowspan="2">{he(tr("Double Area"))}</th>\n'
+            f'  <th rowspan="2">{th_dmd}</th>'
+            f'<th rowspan="2">{th_latitude}</th><th rowspan="2">{th_double_area}</th>\n'
             '</tr>\n'
-            '<tr><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>\n'
+            f'<tr><th>{he(_inclination_unit_label(inclination_unit))}</th>'
+            '<th>m</th><th>m</th><th>m</th><th>m</th><th>m</th><th>m</th></tr>\n'
             '</thead>\n'
             f'<tbody>{rows_html}</tbody>\n'
-            '</table>'
+            '</table></div>'
         )
         return header_html + table_html
 
     intro_parts.append(_calc_block_html(area_entries[0]))
-    sections.append(f"<section class='notebook-intro'>{''.join(intro_parts)}</section>")
+    sections.append(
+        f"<section class='notebook-intro calc-sheet-print-page'>"
+        f"<div class='calc-sheet-print-body'>{''.join(intro_parts)}</div>"
+        f"</section>"
+    )
     for entry in area_entries[1:]:
         sections.append(
-            f"<section class='notebook-block notebook-page-break'>{_calc_block_html(entry)}</section>"
+            f"<section class='notebook-block calc-sheet-print-page'>"
+            f"<div class='calc-sheet-print-body'>{_calc_block_html(entry)}</div>"
+            f"</section>"
         )
 
     return "".join(sections)
@@ -2290,11 +2644,13 @@ def _build_table_html(*, project_name, work_name, scale_text, paper_key,
                       note_text, observations, computation,
                       fiscal_year="", surveyor="", measurement_date="", operation_type="",
                       block_entries=None, exclude_connecting_lines=False,
-                      magnetic_declination=0.0):
+                      magnetic_declination=0.0,
+                      distance_unit="m", inclination_unit="deg"):
     """Full HTML with 測量野帳 + 面積計算簿 tabs for browser preview/print."""
     he = html_module.escape
     tr = _tr_export
     page_css = _CSS_PAGE_SIZE.get(paper_key, "A4 landscape")
+    generated_at = datetime.now().strftime("%Y/%m/%d %H:%M")
     block_entries = _normalized_block_entries(
         observations=observations,
         computation=computation,
@@ -2310,6 +2666,8 @@ def _build_table_html(*, project_name, work_name, scale_text, paper_key,
         block_entries=block_entries,
         exclude_connecting_lines=exclude_connecting_lines,
         magnetic_declination=magnetic_declination,
+        distance_unit=distance_unit,
+        inclination_unit=inclination_unit,
     )
     calc = ""
     if area_entries:
@@ -2318,7 +2676,16 @@ def _build_table_html(*, project_name, work_name, scale_text, paper_key,
             project_name=project_name, work_name=work_name,
             note_text=note_text, paper_key=paper_key,
             block_entries=block_entries,
+            distance_unit=distance_unit,
+            inclination_unit=inclination_unit,
         )
+    print_header = _print_doc_header_html(
+        project_name=project_name,
+        work_name=work_name,
+        scale_text=scale_text,
+        paper_key=paper_key,
+        generated_at=generated_at,
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="utf-8">
@@ -2326,6 +2693,7 @@ def _build_table_html(*, project_name, work_name, scale_text, paper_key,
 <style>
 body{{font-family:'Yu Gothic UI','Meiryo',sans-serif;margin:0;background:#f3f6fa;}}
 header{{padding:10px 16px;border-bottom:1px solid #d6dbe1;background:#fff;}}
+.print-doc-header{{display:none;}}
 .tabs{{display:flex;gap:6px;padding:8px 14px;background:#fff;border-bottom:1px solid #d6dbe1;}}
 .tab-btn{{border:1px solid #d6dbe1;background:#fff;border-radius:6px;
           padding:6px 12px;cursor:pointer;font-size:13px;}}
@@ -2335,13 +2703,42 @@ header{{padding:10px 16px;border-bottom:1px solid #d6dbe1;background:#fff;}}
 table{{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px;}}
 th,td{{border:1px solid #bbc;padding:4px 6px;}}
 th{{background:#edf2f7;text-align:center;white-space:nowrap;}}
+.num{{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}}
+abbr{{text-decoration:none;cursor:help;}}
+.calc-table-wrap{{width:100%;overflow-x:auto;}}
+.calc-sheet-table{{width:100%;}}
+.calc-sheet-table th{{white-space:normal;line-height:1.15;}}
+.calc-sheet-table td{{line-height:1.15;}}
+.calc-sheet-table .station{{overflow-wrap:anywhere;}}
+@media screen{{
+  /* Keep columns legible in the on-screen tab view only. (The narrower-than-
+     notebook print/PDF bug was actually table-layout:fixed on .calc-sheet-table
+     not honoring width:100% under Qt's printToPdf; that property is removed
+     above. This min-width is just for on-screen browsing convenience.) */
+  .calc-sheet-table{{min-width:1100px;}}
+}}
 .notebook-block{{break-inside:avoid-page;page-break-inside:avoid;}}
 h3,h4{{break-after:avoid-page;page-break-after:avoid;}}
 @media print{{
-  @page{{size:{page_css};margin:12mm;}}
+  @page{{size:{page_css};margin:12mm;
+    @bottom-center{{content:counter(page) " / " counter(pages);font-size:9px;color:#555;}}
+  }}
   header,.tabs{{display:none;}}
   .tab-panel{{display:block!important;page-break-after:always;}}
   .tab-panel:last-child{{page-break-after:avoid;}}
+  .tab-panel{{padding:0;}}
+  .print-doc-header{{display:grid;grid-template-columns:1.3fr 1.1fr 0.9fr 0.55fr 0.55fr;
+    gap:3mm;border:1px solid #bbc;background:#fff;margin:0 0 4mm 0;padding:2mm 2.5mm;
+    font-size:9px;line-height:1.2;break-after:avoid-page;page-break-after:avoid;}}
+  .print-doc-header span{{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+  .print-doc-header strong{{font-weight:700;margin-right:1.5mm;}}
+  #calc .calc-sheet-print-page{{overflow:visible;break-inside:auto;page-break-inside:auto;}}
+  #calc .calc-sheet-print-page + .calc-sheet-print-page{{break-before:page;page-break-before:always;}}
+  #calc .calc-table-wrap{{overflow:visible;}}
+  #calc .calc-sheet-meta,#calc .calc-sheet-table{{min-width:0;width:100%;font-size:7px;}}
+  #calc .calc-sheet-meta th,#calc .calc-sheet-meta td,#calc .calc-sheet-table th,#calc .calc-sheet-table td{{padding:2px 3.6px;line-height:1.1;}}
+  #calc .calc-sheet-table th{{white-space:normal;}}
+  #calc .calc-sheet-table .num{{white-space:nowrap;}}
   .notebook-block{{break-inside:avoid-page;page-break-inside:avoid;}}
   .notebook-page-break{{break-before:page;page-break-before:always;}}
   body{{background:#fff;}}
@@ -2349,13 +2746,13 @@ h3,h4{{break-after:avoid-page;page-break-after:avoid;}}
 </style></head><body>
 <header>
   <strong>{he(project_name)} / {he(work_name)}</strong>
-  <span style="margin-left:12px;color:#555;">{he(tr("Scale"))} {he(scale_text)} / {he(paper_key)}</span>
+  <span style="margin-left:12px;color:#555;">{he(tr("Scale"))} {he(scale_text)} / {he(_tr_paper_key(paper_key))}</span>
 </header>
 <nav class="tabs">
   <button class="tab-btn" onclick="openTab('nb')">{he(tr("Survey Notebook"))}</button>
   {(f"""<button class="tab-btn" onclick="openTab('calc')">{he(tr("Area Calculation Sheet"))}</button>""" if area_entries else '')}
 </nav>
-<div id="nb" class="tab-panel">{nb}</div>
+<div id="nb" class="tab-panel">{print_header}{nb}</div>
 {(f'<div id="calc" class="tab-panel">{calc}</div>' if area_entries else '')}
 <script>
 function openTab(id){{
@@ -2373,7 +2770,7 @@ function openTab(id){{
 # DMD calculation
 # ---------------------------------------------------------------------------
 
-def _dmd_rows(computation, obs_map):
+def _dmd_rows(computation, obs_map, *, distance_unit="m", inclination_unit="deg"):
     rows = []
     totals = {"sum_sd": 0.0, "sum_hd": 0.0, "sum_dz": 0.0, "sum_double_area": 0.0}
     legs = computation.leg_results
@@ -2394,7 +2791,7 @@ def _dmd_rows(computation, obs_map):
     z_acc = 0.0
     for i, leg in enumerate(legs):
         obs = obs_map.get((leg.from_station, leg.target_station))
-        dz = _height_diff_from_obs(obs)
+        dz = _height_diff_from_obs(obs, distance_unit, inclination_unit)
         if dz is not None:
             z_acc += dz
 
@@ -2403,7 +2800,7 @@ def _dmd_rows(computation, obs_map):
         lat_val = lats[i] if i < len(lats) else 0.0
         double_area = dmd_val * lat_val
 
-        sd = obs.slope_distance if obs else None
+        sd = _distance_to_meters(obs.slope_distance, distance_unit) if obs else None
         az = obs.azimuth if obs else leg.azimuth_degrees
         inc = obs.inclination if obs else None
 
@@ -2425,11 +2822,15 @@ def _dmd_rows(computation, obs_map):
     return rows, totals
 
 
-def _height_diff_from_obs(obs):
+def _height_diff_from_obs(obs, distance_unit="m", inclination_unit="deg"):
     if obs is None:
         return None
     if obs.slope_distance is not None and obs.inclination is not None:
-        return obs.slope_distance * math.sin(math.radians(obs.inclination))
+        slope_distance_m = _distance_to_meters(obs.slope_distance, distance_unit)
+        inclination_deg = _inclination_to_degrees(obs.inclination, inclination_unit)
+        if slope_distance_m is None or inclination_deg is None:
+            return None
+        return slope_distance_m * math.sin(math.radians(inclination_deg))
     return None
 
 
@@ -2460,6 +2861,8 @@ def generate_export_bundle(
     operation_type="",
     exclude_connecting_lines=False,
     magnetic_declination=0.0,
+    distance_unit="m",
+    inclination_unit="deg",
 ):
     output_dir = os.path.normpath(output_dir)
     os.makedirs(output_dir, exist_ok=True)
@@ -2507,6 +2910,8 @@ def generate_export_bundle(
         operation_type=operation_type,
         exclude_connecting_lines=exclude_connecting_lines,
         magnetic_declination=magnetic_declination,
+        distance_unit=distance_unit,
+        inclination_unit=inclination_unit,
     )
     with open(html_path, "w", encoding="utf-8") as fp:
         fp.write(html_text)
@@ -2614,9 +3019,16 @@ def _observation_is_excluded(observation):
     return bool(getattr(observation, "exclude_from_output", False))
 
 
-def _entry_sum_sd(entry, *, include_excluded_obs=False):
+def _entry_has_included_observations(entry):
+    return any(
+        not _observation_is_excluded(obs)
+        for obs in entry.get("observations", [])
+    )
+
+
+def _entry_sum_sd(entry, *, include_excluded_obs=False, distance_unit="m"):
     return sum(
-        (obs.slope_distance or 0.0)
+        (_distance_to_meters(obs.slope_distance, distance_unit) or 0.0)
         for obs in entry.get("observations", [])
         if obs.slope_distance is not None
         and (include_excluded_obs or not _observation_is_excluded(obs))
@@ -2696,14 +3108,14 @@ def _build_line_notebook_entries(block_entries):
     excluded_entries = []
     for line_index, (base_id, entries) in enumerate(grouped_entries.items()):
         line_name = f"Line{chr(ord('A') + line_index)}"
-        main_entries.append(
-            _merge_line_entries(
-                entries,
-                block_id=base_id,
-                block_name=line_name,
-                display_role="main_line",
-            )
+        main_entry = _merge_line_entries(
+            entries,
+            block_id=base_id,
+            block_name=line_name,
+            display_role="main_line",
         )
+        if _entry_has_included_observations(main_entry):
+            main_entries.append(main_entry)
         excluded_index = 1
         for entry in entries:
             obs_list = list(entry.get("observations") or [])
@@ -2728,10 +3140,17 @@ def _iter_line_display_entries(main_entries, excluded_entries):
         prefix = block_name.split(" Excluded", 1)[0]
         excluded_by_prefix.setdefault(prefix, []).append(entry)
 
+    yielded_prefixes = set()
     for main_entry in main_entries:
         yield ("main", main_entry)
         prefix = str(main_entry.get("block_name") or "")
+        yielded_prefixes.add(prefix)
         for excluded_entry in excluded_by_prefix.get(prefix, []):
+            yield ("excluded", excluded_entry)
+    for prefix, entries in excluded_by_prefix.items():
+        if prefix in yielded_prefixes:
+            continue
+        for excluded_entry in entries:
             yield ("excluded", excluded_entry)
 
 
@@ -2756,9 +3175,18 @@ def _area_summary_html(area_entries, *, heading="面積一覧"):
 
     total_ha = sum(math.floor(m2 / 10000.0 * 100) / 100 for _, m2 in rows)
 
+    he = html_module.escape
+    col_block = he(_tr_export("Parcel"))
+    col_m2 = he(_tr_export("Area (m²)"))
+    col_ha = he(_tr_export("Area (ha)"))
+    col_total = he(_tr_export("Total"))
     html_rows = [
-        "<table>"
-        "<thead><tr><th>区画</th><th>面積(m²)</th><th>面積(ha)</th></tr></thead><tbody>"
+        # table-layout:fixed matches the other export tables (notebook, DMD)
+        # so this table reliably fills its container width instead of
+        # shrinking to its own (short) content, which previously made it
+        # narrower than the surrounding tables.
+        '<table style="width:100%;table-layout:fixed;">'
+        f"<thead><tr><th>{col_block}</th><th>{col_m2}</th><th>{col_ha}</th></tr></thead><tbody>"
     ]
     for block_name, area_m2 in rows:
         html_rows.append(
@@ -2770,7 +3198,7 @@ def _area_summary_html(area_entries, *, heading="面積一覧"):
         )
     html_rows.append(
         "<tr style='font-weight:bold;background:#f0f4f8;'>"
-        "<td>合計</td>"
+        f"<td>{col_total}</td>"
         f"<td style='text-align:right'>({_fmt_d(total_m2, 4)})</td>"
         f"<td style='text-align:right'>{total_ha:.2f} ha</td>"
         "</tr>"
@@ -2784,6 +3212,7 @@ def _build_notebook_export_summary_rows(
     *,
     exclude_connecting_lines=False,
     tr_label=None,
+    distance_unit="m",
 ):
     tr_label = tr_label or (lambda text: text)
     area_entries, line_entries, _is_area_mode = _classify_block_entries(block_entries)
@@ -2815,7 +3244,7 @@ def _build_notebook_export_summary_rows(
     line_total_hd = 0.0
     for entry_type, entry in _iter_line_display_entries(main_line_entries, excluded_line_entries):
         if entry_type == "main":
-            sd = _entry_sum_sd(entry)
+            sd = _entry_sum_sd(entry, distance_unit=distance_unit)
             hd = _entry_sum_hd(entry)
             line_total_sd += sd
             line_total_hd += hd
@@ -2825,7 +3254,11 @@ def _build_notebook_export_summary_rows(
                 f"{tr_label('Slope')} {_fmt_d(sd)} m / {tr_label('Horizontal')} {_fmt_d(hd)} m",
             ))
             continue
-        sd = _entry_sum_sd(entry, include_excluded_obs=True)
+        sd = _entry_sum_sd(
+            entry,
+            include_excluded_obs=True,
+            distance_unit=distance_unit,
+        )
         hd = _entry_sum_hd(entry, include_excluded_obs=True)
         rows.append((
             tr_label("Length"),
@@ -2848,6 +3281,8 @@ def _build_notebook_preview_sections(
     exclude_connecting_lines=False,
     tr_label=None,
     magnetic_declination=0.0,
+    distance_unit="m",
+    inclination_unit="deg",
 ):
     tr_label = tr_label or (lambda text: text)
     sections = []
@@ -2887,7 +3322,7 @@ def _build_notebook_preview_sections(
             summary_rows.append(
                 (
                     tr_label("Slope Distance Total"),
-                    f"{_fmt_d(_entry_sum_sd(entry, include_excluded_obs=True))} m",
+                    f"{_fmt_d(_entry_sum_sd(entry, include_excluded_obs=True, distance_unit=distance_unit))} m",
                 )
             )
             summary_rows.append(
@@ -2900,7 +3335,12 @@ def _build_notebook_preview_sections(
         rows = []
         for obs in obs_list:
             leg = leg_map.get((obs.from_station, obs.target_station))
-            dz = _height_diff_from_obs(obs)
+            dz = _height_diff_from_obs(obs, distance_unit, inclination_unit)
+            sd_m = _distance_to_meters(obs.slope_distance, distance_unit)
+            hd_m = leg.horizontal_distance if leg else _distance_to_meters(
+                obs.horizontal_distance,
+                distance_unit,
+            )
             note_parts = [str(obs.note or "").strip()]
             row_excluded = _observation_is_excluded(obs)
             if excluded:
@@ -2917,7 +3357,7 @@ def _build_notebook_preview_sections(
                 obs.from_station, obs.target_station,
                 _fmt(raw_az), true_az_str,
                 _fmt(obs.inclination),
-                _fmt(obs.slope_distance), _fmt(obs.horizontal_distance),
+                _fmt(sd_m), _fmt(hd_m),
                 _fmt(dz),
                 _fmt(leg.delta_x if leg else None),
                 _fmt(leg.delta_y if leg else None),
@@ -2934,7 +3374,11 @@ def _build_notebook_preview_sections(
                 subtotal_note = f"{subtotal_note} / {tr_label('Excluded from calculation')}"
             rows.append([
                 tr_label("Length Total"), "", "", "", "",
-                _fmt(_entry_sum_sd(entry, include_excluded_obs=True)),
+                _fmt(_entry_sum_sd(
+                    entry,
+                    include_excluded_obs=True,
+                    distance_unit=distance_unit,
+                )),
                 _fmt(_entry_sum_hd(entry, include_excluded_obs=True)),
                 "", "", "", "", "", subtotal_note,
             ])
@@ -2958,11 +3402,11 @@ def _build_notebook_preview_sections(
         summary_rows = [(tr_label("Category"), name)]
         if include_excluded_totals:
             summary_rows.append((tr_label("Handling"), tr_label("Excluded from calculation")))
+        sd_total = _entry_sum_sd(
+            entry, include_excluded_obs=include_excluded_totals, distance_unit=distance_unit
+        )
         summary_rows.append(
-            (
-                tr_label("Slope Distance Total"),
-                f"{_fmt_d(_entry_sum_sd(entry, include_excluded_obs=include_excluded_totals))} m",
-            )
+            (tr_label("Slope Distance Total"), f"{_fmt_d(sd_total)} m")
         )
         summary_rows.append(
             (
@@ -2973,7 +3417,12 @@ def _build_notebook_preview_sections(
         rows = []
         for obs in obs_list:
             leg = leg_map.get((obs.from_station, obs.target_station))
-            dz = _height_diff_from_obs(obs)
+            dz = _height_diff_from_obs(obs, distance_unit, inclination_unit)
+            sd_m = _distance_to_meters(obs.slope_distance, distance_unit)
+            hd_m = leg.horizontal_distance if leg else _distance_to_meters(
+                obs.horizontal_distance,
+                distance_unit,
+            )
             note_parts = [str(obs.note or "").strip()]
             if _observation_is_excluded(obs):
                 note_parts.append(tr_label("Excluded from calculation"))
@@ -2987,7 +3436,7 @@ def _build_notebook_preview_sections(
                 obs.from_station, obs.target_station,
                 _fmt(raw_az), true_az_str,
                 _fmt(obs.inclination),
-                _fmt(obs.slope_distance), _fmt(obs.horizontal_distance),
+                _fmt(sd_m), _fmt(hd_m),
                 _fmt(dz),
                 _fmt(leg.delta_x if leg else None),
                 _fmt(leg.delta_y if leg else None),
@@ -2999,7 +3448,11 @@ def _build_notebook_preview_sections(
             subtotal_note = f"{subtotal_note} / {tr_label('Excluded from calculation')}"
         rows.append([
             tr_label("Length Total"), "", "", "", "",
-            _fmt(_entry_sum_sd(entry, include_excluded_obs=include_excluded_totals)),
+            _fmt(_entry_sum_sd(
+                entry,
+                include_excluded_obs=include_excluded_totals,
+                distance_unit=distance_unit,
+            )),
             _fmt(_entry_sum_hd(entry, include_excluded_obs=include_excluded_totals)),
             "", "", "", "", "", subtotal_note,
         ])
@@ -3045,6 +3498,8 @@ def _build_calc_preview_sections(
     work_name="",
     note_text="",
     tr_label=None,
+    distance_unit="m",
+    inclination_unit="deg",
 ):
     tr_label = tr_label or (lambda text: text)
     sections = []
@@ -3058,7 +3513,12 @@ def _build_calc_preview_sections(
         if computation is None:
             continue
         obs_map = {(o.from_station, o.target_station): o for o in (observations or [])}
-        dmd_rows_list, totals = _dmd_rows(computation, obs_map)
+        dmd_rows_list, totals = _dmd_rows(
+            computation,
+            obs_map,
+            distance_unit=distance_unit,
+            inclination_unit=inclination_unit,
+        )
         closure = computation.latest_closure()
         err_dist = closure.error_distance if closure else 0.0
         perimeter = computation.corrected_perimeter() or computation.total_horizontal_distance()

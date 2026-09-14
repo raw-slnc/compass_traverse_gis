@@ -19,7 +19,7 @@ from .survey_model import IMPORTABLE_NOTEBOOK_COLUMNS
 IMPORT_FIELD_LABELS = {
     "from_station": "測量点",
     "target_station": "目標点",
-    "connect_to": "接続点",
+    "connect_to": "分岐to測量点",
     "close_to": "閉合点",
     "slope_distance": "SD",
     "inclination": "INC",
@@ -32,7 +32,7 @@ IMPORT_FIELD_LABELS = {
 HEADER_KEYWORDS = {
     "from_station": ("測量点", "測点", "起点", "from"),
     "target_station": ("目標点", "目標", "到達点", "target", "to"),
-    "connect_to": ("接続点", "接続"),
+    "connect_to": ("分岐to測量点", "接続点", "接続"),
     "close_to": ("閉合点", "閉合"),
     "slope_distance": ("sd", "斜距離", "射距離", "実測距離"),
     "inclination": ("inc", "高低", "高低角", "鉛直角"),

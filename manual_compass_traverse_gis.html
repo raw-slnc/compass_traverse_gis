@@ -321,38 +321,38 @@
 
       <section>
         <h2>1. 概要</h2>
-        <p>このプラグインは、コンパス測量の野帳入力、接続点・閉合点管理、トラバース計算、レイヤ生成、帳票エクスポートを QGIS 上で一体的に扱うための作業画面です。</p>
+        <p>このプラグインは、コンパス測量の野帳入力、分岐管理・閉合点管理、トラバース計算、レイヤ生成、帳票エクスポートを QGIS 上で一体的に扱うための作業画面です。</p>
         <div class="note">レイヤはプラグイン管理レイヤとして生成されます。必要に応じてシンボロジ変更はできますが、元データ編集は野帳テーブル側で行ってください。</div>
       </section>
 
       <section>
         <h2>2. 基本構成</h2>
         <table>
-          <tr><th>左パネル</th><td><code>データ状態</code>、<code>プロジェクト</code> / <code>作業名</code> 切替、<code>ブロック名称</code>、<code>成果物</code></td></tr>
-          <tr><th>野帳 タブ</th><td>野帳入力、測量設定、接続点・閉合点、除外区間、位置入力</td></tr>
+          <tr><th>左パネル</th><td><code>データ状態</code>、<code>プロジェクト</code> / <code>作業区分</code> 切替、<code>ブロック名称</code>、<code>成果物</code></td></tr>
+          <tr><th>野帳 タブ</th><td>野帳入力、測量設定、分岐to測量点・閉合点、除外区間、位置入力</td></tr>
           <tr><th><code>プロジェクト</code> タブ</th><td><code>プロジェクト管理</code>、<code>計算サマリー</code>、言語切替</td></tr>
         </table>
       </section>
 
       <section>
-        <h2>3. <code>プロジェクト</code> / <code>作業名</code> の考え方</h2>
-        <p>このプラグインでは、<code>プロジェクト</code> が親グループ、<code>作業名</code> が個別の測量データです。<code>プロジェクト</code> では実データの一覧表示や新規登録・削除を行い、<code>作業名</code> で現在扱う実データを切り替えます。</p>
+        <h2>3. <code>プロジェクト</code> / <code>作業区分</code> の考え方</h2>
+        <p>このプラグインでは、<code>プロジェクト</code> が親グループ、<code>作業区分</code> が個別の測量データです。<code>プロジェクト</code> では実データの一覧表示や新規登録・削除を行い、<code>作業区分</code> で現在扱う実データを切り替えます。</p>
         <table>
-          <tr><th><code>プロジェクト</code></th><td>複数の <code>作業名</code> をまとめる親グループです。左パネルの <code>プロジェクト</code> コンボから、実データの一覧表示や新規登録・削除を行います。</td></tr>
-          <tr><th><code>作業名</code></th><td>実際の測量データ単位です。野帳、位置情報、計算状態、<code>プロジェクト</code> タブの表示内容は <code>作業名</code> ごとに保存されます。</td></tr>
-          <tr><th>切替時の動作</th><td><code>作業名</code> を切り替えると、その実データに保存されている野帳・位置・計算状態・<code>プロジェクト</code> タブの内容が表示されます。</td></tr>
+          <tr><th><code>プロジェクト</code></th><td>複数の <code>作業区分</code> をまとめる親グループです。左パネルの <code>プロジェクト</code> コンボから、実データの一覧表示や新規登録・削除を行います。</td></tr>
+          <tr><th><code>作業区分</code></th><td>実際の測量データ単位です。野帳、位置情報、計算状態、<code>プロジェクト</code> タブの表示内容は <code>作業区分</code> ごとに保存されます。</td></tr>
+          <tr><th>切替時の動作</th><td><code>作業区分</code> を切り替えると、その実データに保存されている野帳・位置・計算状態・<code>プロジェクト</code> タブの内容が表示されます。</td></tr>
         </table>
         <div class="note">
-          <code>プロジェクト</code> / <code>作業名</code> の内容は、QGIS プロジェクトと同じフォルダに作られる SQLite に保存されます。QGIS プロジェクト未保存時は保存先が確定しないため、先に QGIS プロジェクトを保存してください。
+          <code>プロジェクト</code> / <code>作業区分</code> の内容は、QGIS プロジェクトと同じフォルダに作られる SQLite に保存されます。QGIS プロジェクト未保存時は保存先が確定しないため、先に QGIS プロジェクトを保存してください。
         </div>
         <div class="figure">
-          <strong>図解: <code>プロジェクト</code> と <code>作業名</code> の関係</strong>
+          <strong>図解: <code>プロジェクト</code> と <code>作業区分</code> の関係</strong>
           <div class="ui-mock">
             <div class="ui-mock-body">
               <div class="ui-form">
                 <div class="ui-label">プロジェクト</div>
                 <div class="ui-combo">道路改良A</div>
-                <div class="ui-label">作業名</div>
+                <div class="ui-label">作業区分</div>
                 <div class="ui-combo">道路改良A / 右岸測量</div>
               </div>
               <div class="figure-grid">
@@ -365,17 +365,17 @@
                   </div>
                 </div>
                 <div class="figure-box">
-                  <h3><span class="plain-chip">作業名一覧</span></h3>
+                  <h3><span class="plain-chip">作業区分一覧</span></h3>
                   <div class="ui-list">
                     <div class="ui-list-row is-active">道路改良A / 右岸測量</div>
                     <div class="ui-list-row">道路改良A / 横断追加</div>
-                    <div class="ui-list-row">作業名を削除...</div>
+                    <div class="ui-list-row">作業区分を削除...</div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <div class="arrow"><code>プロジェクト</code> では実データの一覧表示や新規登録を行い、<code>作業名</code> を切り替えるとその実データに保存されている野帳・位置・<code>プロジェクト</code> タブの内容が表示されます。</div>
+          <div class="arrow"><code>プロジェクト</code> では実データの一覧表示や新規登録を行い、<code>作業区分</code> を切り替えるとその実データに保存されている野帳・位置・<code>プロジェクト</code> タブの内容が表示されます。</div>
         </div>
       </section>
 
@@ -393,9 +393,9 @@
         <h2>5. <code>プロジェクト</code> タブの編集</h2>
         <p><code>プロジェクト管理</code> の表は、左列が <code>項目</code>、右列が <code>値</code> です。基本的には右列の <code>値</code> 側を編集しますが、<code>完了フラグ</code> だけは通常入力ではなく、該当セルのダブルクリックで状態を切り替えます。</p>
         <table>
-          <tr><th>値を入力する項目</th><td><code>プロジェクト名</code>, <code>作業名</code>, <code>測定者</code>, <code>測定日時</code>, <code>年度基準日</code>, <code>事業年度</code>, <code>年度繰越</code>, <code>事業樹別</code></td></tr>
+          <tr><th>値を入力する項目</th><td><code>プロジェクト</code>, <code>作業区分</code>, <code>測定者</code>, <code>測定日時</code>, <code>年度基準日</code>, <code>事業年度</code>, <code>年度繰越</code>, <code>事業樹別</code></td></tr>
           <tr><th><code>完了フラグ</code></th><td>右列セルをダブルクリックして、編集中と完了を切り替えます。</td></tr>
-          <tr><th>保存単位</th><td>現在選択中の <code>作業名</code> に対して保存されます。</td></tr>
+          <tr><th>保存単位</th><td>現在選択中の <code>作業区分</code> に対して保存されます。</td></tr>
           <tr><th>注意</th><td>名称を変更したあとは、必要に応じて <code>レイヤ更新</code> を実行して表示や出力を更新してください。</td></tr>
         </table>
         <div class="figure">
@@ -404,8 +404,8 @@
             <div class="ui-mock-body">
               <table class="ui-table">
                 <tr><th>項目</th><th>値</th></tr>
-                <tr><td>プロジェクト名</td><td class="ui-value is-edit">道路改良A ← ここを書き換える</td></tr>
-                <tr><td>作業名</td><td class="ui-value is-edit">右岸測量 ← ここを書き換える</td></tr>
+                <tr><td>プロジェクト</td><td class="ui-value is-edit">道路改良A ← ここを書き換える</td></tr>
+                <tr><td>作業区分</td><td class="ui-value is-edit">右岸測量 ← ここを書き換える</td></tr>
                 <tr><td>測定者</td><td class="ui-value is-edit">空欄または入力済みの値 ← ここを書き換える</td></tr>
                 <tr><td>完了フラグ</td><td class="ui-value is-toggle">編集中 / 完了 ← ここをダブルクリック</td></tr>
               </table>
@@ -428,7 +428,7 @@
         <h2>6. 野帳入力</h2>
         <ul>
           <li>測量点（<code>測量点</code>）と目標点（<code>目標点</code>）は、数値に限らず自由な文字列で入力できます。</li>
-          <li><code>接続点</code> と <code>閉合点</code> は、ダブルクリックで測点候補から選択できます。</li>
+          <li><code>分岐to測量点</code> と <code>閉合点</code> は、ダブルクリックでどの測量点へ接続するかを、候補から選択できます。</li>
           <li><code>位置</code> 列はダブルクリックで緯度経度入力モーダルを開きます。</li>
           <li><code>除外区間</code> 列は、出力から除外する区間を表します。右クリックメニューから <code>開始</code> / <code>終了</code> / <code>単独</code> を設定できます。</li>
           <li>空行は視認上の区切りとして使用できます。</li>
@@ -438,7 +438,7 @@
         <p class="muted">野帳の入力や各セルの設定は次の流れで行います。</p>
         <ol>
           <li>野帳テーブルのセルをクリックして、<code>測量点</code>、<code>目標点</code>、<code>SD</code>、<code>INC</code>、<code>AZ</code> などを直接入力する</li>
-          <li><code>接続点</code> または <code>閉合点</code> を設定したい行は、そのセルをダブルクリックして候補一覧から選ぶ</li>
+          <li><code>分岐to測量点</code> または <code>閉合点</code> を設定したい行は、そのセルをダブルクリックして、接続先の候補を一覧から選ぶ</li>
           <li><code>位置</code> を設定したい行は、そのセルをダブルクリックして緯度経度入力画面を開く</li>
           <li><code>除外区間</code> を設定したい行は、その行を右クリックして <code>開始にする</code>、<code>終了にする</code>、<code>単独で除外</code> を選ぶ</li>
           <li>入力や設定を変更したあと、必要に応じて <code>レイヤ更新</code> を押して計算と表示へ反映する</li>
@@ -459,7 +459,7 @@
           <tr><th>野帳列</th><th>自動検知キーワード例</th></tr>
           <tr><td>測量点</td><td>測量点, 測点, 起点, from</td></tr>
           <tr><td>目標点</td><td>目標点, 目標, 到達点, target, to</td></tr>
-          <tr><td>接続点</td><td>接続点, 接続</td></tr>
+          <tr><td>分岐to測量点</td><td>分岐to測量点, 接続点, 接続</td></tr>
           <tr><td>閉合点</td><td>閉合点, 閉合</td></tr>
           <tr><td>SD</td><td>SD, 斜距離, 射距離, 実測距離</td></tr>
           <tr><td>INC</td><td>INC, 高低, 高低角, 鉛直角</td></tr>
@@ -524,7 +524,7 @@
         <p class="muted"><code>レイヤ更新</code> は、次のようなタイミングで実行します。</p>
         <ol>
           <li>野帳を手入力したあと</li>
-          <li><code>接続点</code>、<code>閉合点</code>、<code>位置</code>、<code>除外区間</code> を変更したあと</li>
+          <li><code>分岐to測量点</code>、<code>閉合点</code>、<code>位置</code>、<code>除外区間</code> を変更したあと</li>
           <li><code>プロジェクト管理</code> の名称を変更し、表示や出力へ反映したいとき</li>
         </ol>
         <div class="note">接続不一致が残っている場合や、開始座標が確定できない場合は、内容を確認してから再実行してください。</div>
@@ -552,8 +552,8 @@
       <section>
         <h2>12. 運用メモ</h2>
         <ul>
-          <li>測点名を変更した場合、参照している接続点・閉合点は自動追従します。</li>
-          <li><code>プロジェクト</code> タブのサマリーや備考は、現在選択中の <code>作業名</code> ごとに保存・表示されます。</li>
+          <li>測点名を変更した場合、参照している分岐to測量点・閉合点は自動追従します。</li>
+          <li><code>プロジェクト</code> タブのサマリーや備考は、現在選択中の <code>作業区分</code> ごとに保存・表示されます。</li>
           <li>どうしてもレイヤを自由編集したい場合は、別レイヤへ複製して使用してください。</li>
           <li><code>プラグインを隠す</code> ボタンでプラグインを非表示にし、QGISキャンバスを広く使えます。ツールバーアイコンで再表示できます。</li>
         </ul>
@@ -571,7 +571,7 @@
         <section>
           <h2>1. 入力と前提</h2>
           <table class="spec-table">
-            <tr><th>対象列</th><td><code>測量点</code>, <code>目標点</code>, <code>接続点</code>, <code>閉合点</code>, <code>除外区間</code>, <code>SD</code>, <code>INC</code>, <code>AZ</code>, <code>HD</code>, <code>位置</code></td></tr>
+            <tr><th>対象列</th><td><code>測量点</code>, <code>目標点</code>, <code>分岐to測量点</code>, <code>閉合点</code>, <code>除外区間</code>, <code>SD</code>, <code>INC</code>, <code>AZ</code>, <code>HD</code>, <code>位置</code></td></tr>
             <tr><th>距離単位</th><td><code>m</code> または <code>ft</code>。内部計算時はメートルへ変換します。</td></tr>
             <tr><th>高低角単位</th><td><code>deg</code> または <code>pct</code>。<code>pct</code> は勾配百分率として扱います。</td></tr>
             <tr><th>方位角の基準</th><td>北を 0° とし、時計回りに増加する方位角として扱います。</td></tr>
@@ -581,6 +581,7 @@
         <section>
           <h2>2. 単位変換</h2>
           <p>距離と高低角は、計算前に次の規則で正規化されます。</p>
+          <div class="note">出来形では、距離は <code>m</code>、面積は <code>m² / ha</code> で出力します。<code>ft</code> は測量機器互換の入力単位として選べますが、出来形では <code>m</code> に変換して表示します。高低角は野帳の単位設定（<code>deg</code> / <code>pct</code>）に合わせて表示します。</div>
           <div class="formula">距離:
 if unit == m: distance_m = value
 if unit == ft: distance_m = value × 0.3048
@@ -826,7 +827,7 @@ Area = |Σ DoubleArea_i| / 2</div>
           <tr><th>Notebook column</th><th>Example keywords</th></tr>
           <tr><td>From</td><td>from, 測量点, 測点, 起点</td></tr>
           <tr><td>To</td><td>to, target, 目標点, 目標</td></tr>
-          <tr><td>Connect To</td><td>connect, 接続点, 接続</td></tr>
+          <tr><td>Connect To</td><td>connect, 分岐to測量点, 接続点, 接続</td></tr>
           <tr><td>Close To</td><td>close, 閉合点, 閉合</td></tr>
           <tr><td>SD</td><td>SD, slope distance, 斜距離</td></tr>
           <tr><td>INC</td><td>INC, inclination, 高低角</td></tr>
@@ -947,6 +948,7 @@ Area = |Σ DoubleArea_i| / 2</div>
 
         <section>
           <h2>2. Unit Conversion</h2>
+          <div class="note">Deliverables export distances in <code>m</code> and areas in <code>m² / ha</code>. <code>ft</code> can be selected as an input unit for survey-instrument compatibility, but deliverables are converted to metres. Inclination is displayed using the selected notebook unit: <code>deg</code> or <code>pct</code>.</div>
           <div class="formula">Distance:
 if unit == m: distance_m = value
 if unit == ft: distance_m = value × 0.3048
@@ -1060,9 +1062,17 @@ Area = |Σ DoubleArea_i| / 2</div>
     }
     function getLang() {
       var hash = window.location.hash.replace('#', '');
-      if (hash === 'lang=en') return 'en';
       if (hash.indexOf('lang=en') >= 0) return 'en';
-      return 'ja';
+      if (hash.indexOf('lang=ja') >= 0) return 'ja';
+      var languages = navigator.languages && navigator.languages.length
+        ? navigator.languages
+        : [navigator.language || navigator.userLanguage || ''];
+      for (var i = 0; i < languages.length; i++) {
+        var language = String(languages[i] || '').toLowerCase();
+        if (language.indexOf('ja') === 0) return 'ja';
+        if (language.indexOf('en') === 0) return 'en';
+      }
+      return 'en';
     }
     function applyPage(page) {
       document.querySelectorAll('.page').forEach(function(el){

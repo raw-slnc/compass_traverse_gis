@@ -21,7 +21,7 @@
     <message><source>Switch</source><translation>切替</translation></message>
     <message><source>New</source><translation>新規作成</translation></message>
     <message><source>Project</source><translation>プロジェクト</translation></message>
-    <message><source>Work Name</source><translation>作業名</translation></message>
+    <message><source>Work Name</source><translation>作業区分</translation></message>
     <message><source>Link</source><translation>連携</translation></message>
     <message><source>Unlink</source><translation>解除</translation></message>
     <message><source>Deliverables</source><translation>成果物</translation></message>
@@ -67,10 +67,10 @@
     <message><source>Area Survey</source><translation>面積測量</translation></message>
     <message><source>New Work Record</source><translation>新規作業記録</translation></message>
     <message><source>Add New Work...</source><translation>新規作業を追加...</translation></message>
-    <message><source>Delete Work...</source><translation>作業名を削除...</translation></message>
+    <message><source>Delete Work...</source><translation>作業区分を削除...</translation></message>
     <message><source>From</source><translation>測量点</translation></message>
     <message><source>To</source><translation>目標点</translation></message>
-    <message><source>Connect To</source><translation>接続点</translation></message>
+    <message><source>Connect To</source><translation>分岐to測量点</translation></message>
     <message><source>Close To</source><translation>閉合点</translation></message>
     <message><source>Excl. Seg.</source><translation>除外区間</translation></message>
     <message><source>Start</source><translation>開始</translation></message>
@@ -96,8 +96,8 @@
     <message><source>Project Details</source><translation>プロジェクト管理</translation></message>
     <message><source>Item</source><translation>項目</translation></message>
     <message><source>Value</source><translation>値</translation></message>
-    <message><source>Project Name</source><translation>プロジェクト名</translation></message>
-    <message><source>Work Name</source><translation>作業名</translation></message>
+    <message><source>Project Name</source><translation>プロジェクト</translation></message>
+    <message><source>Work Name</source><translation>作業区分</translation></message>
     <message><source>Surveyor</source><translation>測定者</translation></message>
     <message><source>Measurement Date</source><translation>測定日時</translation></message>
     <message><source>Fiscal Start</source><translation>年度基準日</translation></message>
@@ -115,11 +115,11 @@
     <message><source>Please map at least the &quot;From&quot; and &quot;To&quot; columns.</source><translation>少なくとも「測量点」と「目標点」の対応列を指定してください。</translation></message>
     <message><source>None</source><translation>なし</translation></message>
     <message><source>{} loaded. Auto-detected: {}</source><translation>{} を読み込みました。自動検知: {}</translation></message>
-    <message><source>No station candidates are available yet for Connect To or Close To.</source><translation>接続点と閉合点の候補になる測量点がまだありません。</translation></message>
-    <message><source>Choose Connect To</source><translation>接続点を選択</translation></message>
+    <message><source>No station candidates are available yet for Connect To or Close To.</source><translation>分岐to測量点と閉合点の候補になる測量点がまだありません。</translation></message>
+    <message><source>Choose Connect To</source><translation>分岐to測量点を選択</translation></message>
     <message><source>Choose Close To</source><translation>閉合点を選択</translation></message>
     <message><source>Station candidates</source><translation>測量点候補</translation></message>
-    <message><source>Connect To or Close To was changed. Run Update Layers to apply it.</source><translation>接続点または閉合点を変更しました。レイヤ更新で反映してください。</translation></message>
+    <message><source>Connect To or Close To was changed. Run Update Layers to apply it.</source><translation>分岐to測量点または閉合点を変更しました。レイヤ更新で反映してください。</translation></message>
     <message><source>Start position not set</source><translation>開始位置未設定</translation></message>
     <message><source>Calculation and layer generation stopped because the start position is not set.</source><translation>開始位置が設定されていないため、計算とレイヤー生成を停止しました。</translation></message>
     <message><source>Calculation Error</source><translation>計算エラー</translation></message>
@@ -140,7 +140,7 @@
     <message><source>There are no calculable blocks.</source><translation>計算可能なブロックがありません。</translation></message>
     <message><source>Complete</source><translation>完了</translation></message>
     <message><source>Editing</source><translation>編集</translation></message>
-    <message><source>The same work name already exists.</source><translation>同じ作業名がすでに存在します。</translation></message>
+    <message><source>The same work name already exists.</source><translation>同じ作業区分がすでに存在します。</translation></message>
     <message><source>Add New Project...</source><translation>新規プロジェクトを追加...</translation></message>
     <message><source>Delete Project...</source><translation>プロジェクトを削除...</translation></message>
     <message><source>Editing is complete. The record is finalized.</source><translation>編集を完了し記録を決定します。</translation></message>
@@ -269,10 +269,10 @@ Choose another folder in the export dialog (Browse). On Windows this can also be
 {}</translation></message>
     <message><source>The manual HTML file could not be found.</source><translation>マニュアル HTML ファイルが見つかりませんでした。</translation></message>
     <message><source>Add Work</source><translation>作業を追加</translation></message>
-    <message><source>New work name</source><translation>新しい作業名</translation></message>
+    <message><source>New work name</source><translation>新しい作業区分</translation></message>
     <message><source>Add Project</source><translation>プロジェクトを追加</translation></message>
-    <message><source>New project name</source><translation>新しいプロジェクト名</translation></message>
-    <message><source>Blank rows are allowed as visual separators. Double-click Connect To and Close To to choose a station reference, and double-click the Geo column to enter latitude/longitude.</source><translation>空行は視認上の区切りとして許容します。接続点と閉合点はダブルクリックで測量点候補から選択し、位置列はダブルクリックで緯度経度を入力します。</translation></message>
+    <message><source>New project name</source><translation>新しいプロジェクト</translation></message>
+    <message><source>Blank rows are allowed as visual separators. Double-click Connect To and Close To to choose a station reference, and double-click the Geo column to enter latitude/longitude.</source><translation>空行は視認上の区切りとして許容します。分岐to測量点と閉合点はダブルクリックで測量点候補から選択し、位置列はダブルクリックで緯度経度を入力します。</translation></message>
     <message><source>Data Mismatch</source><translation>データの不一致</translation></message>
     <message><source>Import data has station number mismatches. Continuing to load data.\n\n{}</source><translation>インポートデータに点番の不一致があります。続行してデータを読み込みます。\n\n{}</translation></message>
     <message><source>Please check the following items. Continue with calculation?\n\n{}</source><translation>以下の箇所を確認してください。このまま計算しますか？\n\n{}</translation></message>
@@ -320,6 +320,12 @@ Choose another folder in the export dialog (Browse). On Windows this can also be
     <message><source> points</source><translation> 点ごと</translation></message>
     <message><source>Notes (Calculation Sheets)</source><translation>備考 (計算書類)</translation></message>
     <message><source>Example: Internal document</source><translation>例: 社内資料</translation></message>
+    <message><source>Units</source><translation>単位</translation></message>
+    <message><source>Distances are exported in metres, and areas in m² / ha.
+ft can be selected as an input unit for survey-instrument compatibility, but deliverables are converted to metres.
+Inclination is displayed using the selected notebook unit: degrees or percent grade.</source><translation>距離は m、面積は m² / ha で出力します。
+ft は測量機器互換の入力単位として選べますが、出来形では m に変換して表示します。
+高低角は野帳の単位設定（度 / %勾配）に合わせて表示します。</translation></message>
     <message><source>Review Notebook / Area Calculations in Browser...</source><translation>野帳・計算簿をブラウザで確認...</translation></message>
     <message><source>Open the survey notebook and area calculation HTML in a browser.</source><translation>測量野帳・面積計算簿のHTMLをブラウザで開きます。</translation></message>
     <message><source>Export Deliverables</source><translation>出来形をエクスポートする</translation></message>
@@ -346,6 +352,8 @@ Choose another folder in the export dialog (Browse). On Windows this can also be
     <message><source>Elevation Difference (m)</source><translation>高低差(m)</translation></message>
     <message><source>dX</source><translation>△X</translation></message>
     <message><source>dY</source><translation>△Y</translation></message>
+    <message><source>dX (m)</source><translation>△X(m)</translation></message>
+    <message><source>dY (m)</source><translation>△Y(m)</translation></message>
     <message><source>Connect To</source><translation>接続先</translation></message>
     <message><source>Close To</source><translation>閉合先</translation></message>
     <message><source>Notes</source><translation>備考</translation></message>
@@ -358,11 +366,14 @@ Choose another folder in the export dialog (Browse). On Windows this can also be
     <message><source>Double Meridian Distance</source><translation>倍横距</translation></message>
     <message><source>Latitude</source><translation>緯距</translation></message>
     <message><source>Double Area</source><translation>倍面積</translation></message>
+    <message><source>Double Meridian Distance (m)</source><translation>倍横距(m)</translation></message>
+    <message><source>Latitude (m)</source><translation>緯距(m)</translation></message>
+    <message><source>Double Area (m²)</source><translation>倍面積(m²)</translation></message>
     <message><source>Area Total</source><translation>面積合計</translation></message>
     <message><source>Length Total (Slope Distance)</source><translation>延長合計（斜距離）</translation></message>
     <message><source>Length Total (Horizontal Distance)</source><translation>延長合計（水平距離）</translation></message>
-    <message><source>Project Name</source><translation>事業名</translation></message>
-    <message><source>Work Name</source><translation>測量名</translation></message>
+    <message><source>Project Name</source><translation>プロジェクト</translation></message>
+    <message><source>Work Name</source><translation>作業区分</translation></message>
     <message><source>Surveyor</source><translation>測定者</translation></message>
     <message><source>Measurement Date</source><translation>測定日時</translation></message>
     <message><source>Fiscal Year</source><translation>事業年度</translation></message>
@@ -399,6 +410,8 @@ Choose another folder in the export dialog (Browse). On Windows this can also be
     <message><source>Area = |ΣDouble Area| / 2 =</source><translation>面積 = |Σ倍面積| / 2 =</translation></message>
     <message><source>Calculation Documents</source><translation>計算書類</translation></message>
     <message><source>Scale</source><translation>縮尺</translation></message>
+    <message><source>Output Date</source><translation>出力日時</translation></message>
+    <message><source>Paper</source><translation>用紙</translation></message>
     <message><source>Horizontal</source><translation>水平</translation></message>
     <message><source>Category</source><translation>区分</translation></message>
     <message><source>Handling</source><translation>扱い</translation></message>
@@ -423,6 +436,13 @@ Choose another folder in the export dialog (Browse). On Windows this can also be
     <message><source>Area Summary</source><translation>面積概要</translation></message>
     <message><source>Displayed Parcel</source><translation>表示区画</translation></message>
     <message><source>Area Calculation Sheet</source><translation>面積計算簿</translation></message>
+    <message><source>See Area Calculation Sheet</source><translation>面積計算簿を参照</translation></message>
+    <message><source>Excluded Segment</source><translation>除外区間</translation></message>
+    <message><source>A4 Portrait</source><translation>A4 縦</translation></message>
+    <message><source>A4 Landscape</source><translation>A4 横</translation></message>
+    <message><source>A3 Portrait</source><translation>A3 縦</translation></message>
+    <message><source>A3 Landscape</source><translation>A3 横</translation></message>
+    <message><source>Suggested Scale</source><translation>推奨縮尺</translation></message>
     <message><source>Close Settings</source><translation>設定を閉じる</translation></message>
     <message><source>Select Output Folder</source><translation>出力フォルダの選択</translation></message>
   </context>

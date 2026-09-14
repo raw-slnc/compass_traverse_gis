@@ -601,7 +601,6 @@ class CompassTraverseGisDockWidget(QtWidgets.QWidget, FORM_CLASS):
             )
             return
         url = QtCore.QUrl.fromLocalFile(str(manual_path))
-        url.setFragment(f"lang={self._current_language_code}")
         QDesktopServices.openUrl(url)
 
     def _open_export_settings(self):
@@ -727,6 +726,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QWidget, FORM_CLASS):
             "block_entries": block_entries,
             "exclude_connecting_lines": self.excludeBranchCheck.isChecked(),
             "magnetic_declination": self.magneticDeclinationSpin.value(),
+            "distance_unit": self.distanceUnitCombo.currentText(),
+            "inclination_unit": self.inclinationUnitCombo.currentText(),
         }
         dialog = ExportSettingsDialog(
             self,
@@ -811,6 +812,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QWidget, FORM_CLASS):
                 operation_type=self._project_record.operation_type,
                 exclude_connecting_lines=self.excludeBranchCheck.isChecked(),
                 magnetic_declination=self.magneticDeclinationSpin.value(),
+                distance_unit=self.distanceUnitCombo.currentText(),
+                inclination_unit=self.inclinationUnitCombo.currentText(),
             )
         except OSError as error:
             QtWidgets.QMessageBox.warning(
@@ -3945,8 +3948,8 @@ class CompassTraverseGisDockWidget(QtWidgets.QWidget, FORM_CLASS):
             return
         selected_name, accepted = QtWidgets.QInputDialog.getItem(
             self,
-            "作業名を削除",
-            "削除する作業名",
+            "作業区分を削除",
+            "削除する作業区分",
             work_names,
             0,
             False,
@@ -4426,9 +4429,11 @@ class CompassTraverseGisDockWidget(QtWidgets.QWidget, FORM_CLASS):
     def _build_point_label_map(self, computation, observations):
         """Return {station_key: label_text} for point-layer labeling.
 
-        Normally labels follow the station name. If a leg closes to an existing
-        station, the endpoint label prefers the close_to text so the closing
-        point is shown using the closure reference name.
+        Labels always follow each row's own station name, matching the line
+        layer's from_st/to_st convention. A closing leg's own target keeps its
+        own label (e.g. "64") even though it lands on the close_to station's
+        position; the equivalence itself belongs to the as-built table output,
+        not the point label.
         """
         label_map = {
             normalize_station_label(computation.start_station): computation.start_station,
@@ -4439,7 +4444,7 @@ class CompassTraverseGisDockWidget(QtWidgets.QWidget, FORM_CLASS):
             if from_key and from_key not in label_map:
                 label_map[from_key] = obs.from_station
             if target_key:
-                label_map[target_key] = obs.close_to or obs.target_station
+                label_map[target_key] = obs.target_station
         return label_map
 
     def _included_horizontal_distance(self, observations, computation):
